@@ -7,6 +7,11 @@
 <title>Traçabilité cuisine</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Le Clan">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -569,7 +574,9 @@ const actions = {
   setupAdmin() {
     openForm({
       title: 'Créer le profil administrateur', cancel: false, okLabel: 'Créer',
-      html: '<img class="dlg-logo" src="logo.jpg" alt=""><p style="margin-top:0">L\'administrateur crée les profils de l\'équipe et gère les réglages. <b>Retenez bien ce mot de passe</b> : il ne peut pas être récupéré.</p>',
+      html: `<img class="dlg-logo" src="logo.jpg" alt=""><p style="margin-top:0">L'administrateur crée les profils de l'équipe et gère les réglages. <b>Retenez bien ce mot de passe</b> : il ne peut pas être récupéré.</p>
+        <div class="note" style="margin-bottom:14px"><span>Vous avez déjà utilisé l'application sur un autre appareil ? Récupérez vos profils et vos données avec un fichier de sauvegarde.</span>
+        <label class="btn sm">${ic('upload')} Restaurer une sauvegarde<input type="file" id="restore" accept=".json,application/json" hidden></label></div>`,
       fields: [
         { name: 'name', label: 'Nom de l\'administrateur', required: true },
         { name: 'pw', label: 'Mot de passe', hint: '4 caractères minimum', type: 'password', attrs: PW_ATTRS, required: true, half: true },
