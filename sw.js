@@ -1,5 +1,5 @@
 // Mise en cache pour que l'application fonctionne sans connexion.
-const CACHE = 'tracabilite-v4';
+const CACHE = 'tracabilite-v5';
 const FILES = ['./', './index.html', './style.css', './manifest.webmanifest', './icon-192.png', './icon-512.png', './logo.jpg',
   './fonts/nunito.woff2', './fonts/dancing-script.woff2'];
 

@@ -92,7 +92,7 @@ const idb = (() => {
 })();
 
 const DEFAULTS = () => ({
-  version: 1, name: 'Le Clan', staff: [], currentUser: '', lastBackup: '', labels: [], stock: [], moves: [], profiles: [],
+  version: 1, name: 'Le Clan', staff: [], currentUser: '', lastBackup: '', labels: [], stock: [], moves: [], profiles: [], born: {}, bornInit: false, audit: [],
   products: [
     ['Plat cuisiné maison (refroidi)', 3], ['Sauce / fond maison', 3], ['Crudités préparées', 2], ['Viande cuite', 3],
     ['Viande crue portionnée', 2], ['Poisson cru préparé', 1], ['Produit décongelé', 3], ['Charcuterie entamée', 3],
@@ -116,8 +116,22 @@ const DEFAULTS = () => ({
 let S = DEFAULTS();
 const ui = { view: 'home', search: '', labSearch: '', labDays: 7, stockSearch: '', stockCat: '', tempTab: 'eq', allSearch: '', reg: 'dlc', from: ymd(addDays(new Date(), -30)), to: ymd(new Date()) };
 let saveErr = false;
+// Date réelle de création de chaque enregistrement (indépendante de la date saisie, qui peut être modifiée).
+// Sert à la fenêtre de correction : suppression possible dans les CORRECTION_HOURS heures qui suivent.
+const REG_KEYS = ['dlc', 'receptions', 'cleanLog', 'labels', 'temps', 'cooling', 'oil'];
+const CORRECTION_HOURS = 24;
+function stampBorn() {
+  if (!S.born) S.born = {}; if (!S.audit) S.audit = [];
+  const legacy = !S.bornInit;   // enregistrements antérieurs à cette fonction : on retient leur propre date
+  for (const k of REG_KEYS) for (const it of S[k] || []) {
+    if (S.born[it.id]) continue;
+    const own = new Date(it.at || it.madeAt || it.startAt).getTime();
+    S.born[it.id] = legacy && !isNaN(own) ? own : Date.now();
+  }
+  S.bornInit = true;
+}
 async function save() {
-  try { await idb.set('kv', 'state', S); saveErr = false; }
+  try { stampBorn(); await idb.set('kv', 'state', S); saveErr = false; }
   catch (e) { saveErr = true; console.error(e); alert('Attention : l\'enregistrement a échoué (' + e + '). Faites une sauvegarde depuis Réglages.'); }
 }
 async function commit(msg) { await save(); render(); if (msg && !saveErr) toast(msg); }
@@ -356,7 +370,11 @@ const views = {
     <div class="printonly"><h2>${esc(S.name)} – ${t.title}</h2><p>Période du ${fmtDay(ui.from)} au ${fmtDay(ui.to)}</p></div>
     ${t.rows.length ? `<div class="tablewrap"><table><thead><tr>${t.head.map(h => `<th>${h}</th>`).join('')}<th class="noprint"></th></tr></thead><tbody>
       ${t.rows.map((r, i) => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}<td class="noprint">${t.extra ? t.extra(t.items[i]) : ''}${t.noDel || !isAdmin() ? '' : `<button class="btn sm danger" data-act="delRow" data-id="${t.items[i].id}">${ic('trash')} Suppr.</button>`}</td></tr>`).join('')}
-      </tbody></table></div>` : '<div class="card empty">Aucun enregistrement sur cette période.</div>'}`;
+      </tbody></table></div>` : '<div class="card empty">Aucun enregistrement sur cette période.</div>'}
+    ${(S.audit || []).length ? `<h3 style="margin-top:22px">Suppressions enregistrées</h3><p class="small muted" style="margin-top:0">Corrections faites dans les ${CORRECTION_HOURS} h suivant la saisie, ou après la durée de conservation.</p>
+      <div class="tablewrap"><table><thead><tr><th>Quand</th><th>Par</th><th>Registre</th><th>Enregistrement supprimé</th><th>Motif</th></tr></thead><tbody>
+      ${S.audit.slice().reverse().slice(0, 100).map(a => `<tr><td>${esc(fmtFull(a.at))}</td><td>${esc(a.by)}</td><td>${esc(a.reg)}</td><td>${esc(a.desc)}</td><td>${esc(a.reason)}</td></tr>`).join('')}
+      </tbody></table></div>` : ''}`;
   },
   set() {
     const li = (txt, act, id) => `<div class="card item"><div class="body">${txt}</div><button class="btn sm danger" data-act="${act}" data-id="${esc(id)}">${ic('trash')} Retirer</button></div>`;
@@ -707,11 +725,19 @@ const actions = {
     if (!isAdmin()) return;
     const key = { dlc: 'dlc', rec: 'receptions', clean: 'cleanLog', lab: 'labels', temp: 'temps', cool: 'cooling', oil: 'oil' }[ui.reg];
     const it = (S[key] || []).find(x => x.id === d.id); if (!it) return;
-    const t = new Date(it.at || it.madeAt || it.startAt);
-    if (Date.now() - t < RETENTION_DAYS * 864e5) return alert(`Suppression impossible : les enregistrements de traçabilité doivent être conservés au moins ${RETENTION_DAYS / 30} mois. Elle ne sera possible qu'à partir du ${fmtDay(ymd(addDays(t, RETENTION_DAYS)))}.`);
-    if (!confirm('Supprimer définitivement cet enregistrement du registre ?')) return;
+    const born = new Date((S.born || {})[it.id] || Date.now()), age = Date.now() - born;
+    const recent = age <= CORRECTION_HOURS * 36e5, old = age >= RETENTION_DAYS * 864e5;
+    if (!recent && !old) return alert(`Suppression impossible : une erreur ne peut être corrigée que dans les ${CORRECTION_HOURS} h qui suivent l'enregistrement. Ensuite, les enregistrements de traçabilité sont conservés ${RETENTION_DAYS / 30} mois (suppression possible à partir du ${fmtDay(ymd(addDays(born, RETENTION_DAYS)))}).`);
+    const t = regData(ui.reg, () => true), i = t.items.findIndex(x => x.id === d.id);
+    const desc = i >= 0 ? t.rows[i].slice(0, 3).join(' · ') : '';
+    let reason = '';
+    if (recent) {
+      reason = (prompt(`Correction d'une erreur de saisie. Motif de la suppression (obligatoire) :\n${desc}`) || '').trim();
+      if (!reason) return toast('Suppression annulée : motif obligatoire', true);
+    } else if (!confirm('Supprimer définitivement cet enregistrement du registre ?')) return;
     if (it.photoId) { idb.del('photos', it.photoId); idb.del('photos', 't_' + it.photoId); }
-    S[key] = S[key].filter(x => x.id !== d.id); commit('Supprimé');
+    S.audit.push({ id: uid(), at: toInput(new Date()), by: S.currentUser, reg: (REGS.find(r => r[0] === ui.reg) || [])[1] || ui.reg, desc, reason: reason || 'Fin de la durée de conservation' });
+    S[key] = S[key].filter(x => x.id !== d.id); delete S.born[d.id]; commit('Supprimé');
   },
 
   rename() { openForm({ title: 'Nom de l\'établissement', fields: [{ name: 'name', label: 'Nom', value: S.name, required: true }], submit(v) { S.name = v.name; commit(); } }); },

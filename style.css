@@ -287,6 +287,92 @@ input[type=checkbox]{width:24px;min-height:0;height:24px;padding:0;accent-color:
 #toast .ic{width:20px;height:20px;color:var(--g400)}
 .printonly{display:none}
 
+/* ---------- Gabarit compact (tablette) : éléments plus petits, rien ne dépasse de son cadre ---------- */
+body{font-size:15px}
+header{padding:7px 16px;padding-top:calc(7px + env(safe-area-inset-top));gap:12px}
+header img{width:40px;height:40px}
+header h1{font-size:28px}
+header .date{font-size:13px}
+#userBtn{min-height:38px;padding:0 14px 0 10px;font-size:14px}
+#userBtn .ic{width:18px;height:18px}
+nav button{font-size:10.5px;gap:3px;padding:5px 2px}
+nav button .ico{width:40px;height:26px;border-radius:13px}
+nav button .ic{width:20px;height:20px}
+nav .badge{top:0;left:calc(50% + 6px);min-width:17px;padding:0 4px;font-size:10px;line-height:14px;border-width:2px;text-align:center}
+main{padding:14px 14px 22px}
+@media (min-width:900px){
+  body{grid-template-columns:96px 1fr}
+  nav{padding:8px 6px;gap:0}
+  nav button{padding:4px 2px;font-size:11px}
+  nav button .ico{width:46px;height:28px;border-radius:14px}
+  main{padding:18px 22px 30px}
+}
+h2{font-size:32px;margin-bottom:10px}
+h2::after{width:60px;margin-top:4px}
+h3{font-size:12px;margin:20px 0 10px}
+.small{font-size:13px}
+.card{padding:12px 15px;margin-bottom:10px;border-radius:16px}
+.card,.item .body,.hero .t,.tile>span:last-child{min-width:0;overflow-wrap:anywhere}
+.card.expired,.card.today,.card.soon,.card.ok{border-left-width:6px}
+.grid{gap:10px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.item{gap:10px}
+.item .body{min-width:170px}
+.item .title{font-size:16px}
+.empty{padding:22px 12px}
+.note{padding:9px 13px;border-radius:14px;margin-bottom:12px;font-size:13px}
+.btn{min-height:44px;padding:0 15px;font-size:14px;border-radius:13px;gap:7px}
+.btn .ic{width:19px;height:19px}
+.btn.big{min-height:50px;font-size:16px;padding:0 20px;border-radius:15px}
+.btn.sm{min-height:38px;padding:0 12px;font-size:13px;border-radius:11px;gap:6px}
+.btn.sm .ic{width:17px;height:17px}
+.chip{min-height:38px;padding:0 14px;font-size:13px;gap:6px}
+.chip .muted{font-size:12px}
+.pill{padding:3px 9px;font-size:12px}
+.hero{grid-template-columns:minmax(84px,150px) 1fr;gap:18px;padding:12px;margin-bottom:12px;border-radius:22px}
+.hero img{border-radius:17px}
+.hero .hi{font-size:clamp(28px,4.5vw,42px)}
+.hero .day{font-size:14px;margin-top:2px}
+.hero .sum{font-size:13px;margin-top:6px}
+.hero .tag{font-size:12px;padding:4px 11px;margin-top:8px}
+.hero .tag .ic{width:14px;height:14px}
+.tiles{gap:10px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+@media (min-width:900px){.tiles{grid-template-columns:repeat(3,1fr)}}
+.tile{min-height:66px;padding:10px 14px;gap:12px;border-radius:16px}
+.tile .bub{width:42px;height:42px}
+.tile .bub .ic{width:22px;height:22px}
+.tile b{font-size:15px}
+.tile span.s{font-size:12px;margin-top:1px}
+.kpi{padding:11px 14px 10px}
+.kpi .lab{gap:8px;font-size:13px}
+.kpi .lab .bub{width:30px;height:30px;border-radius:10px}
+.kpi .lab .ic{width:17px;height:17px}
+.stat{font-size:32px;margin:6px 0 4px}
+.stat small{font-size:16px}
+.task{min-height:56px;gap:13px}
+.task .box{width:32px;height:32px;border-width:2px}
+.task .box .ic{width:19px;height:19px}
+input,select,textarea{font-size:15px;min-height:46px;padding:9px 12px;border-radius:12px}
+textarea{min-height:76px}
+label.f{font-size:13px;margin-bottom:11px}
+dialog{border-radius:22px}
+dialog form{padding:18px 18px 14px}
+dialog h2{font-size:28px}
+dialog .foot .btn{min-width:110px}
+.dlg-logo{width:84px;height:84px;margin-bottom:8px}
+.pgrid{gap:10px;grid-template-columns:repeat(auto-fill,minmax(118px,1fr))}
+.ptile{padding:11px 6px 10px;font-size:14px;border-radius:17px;min-width:0;overflow-wrap:anywhere;text-align:center}
+.ptile .av{width:50px;height:50px;font-size:28px}
+.ptile small{font-size:11px}
+table{font-size:13px}
+th,td{padding:8px 10px}
+th{font-size:11px}
+.gal{gap:10px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+.agrid{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+.achip{min-height:42px;padding:0 12px;font-size:14px;border-radius:12px}
+input[type=checkbox]{width:22px;height:22px}
+.splash img{width:min(60vw,360px)}
+#toast{padding:10px 18px;font-size:14px}
+
 @media print{
   header,nav,.noprint,#toast{display:none!important}
   body{display:block;background:#fff} main{overflow:visible;padding:0}
