@@ -1,5 +1,5 @@
 // Mise en cache pour que l'application fonctionne sans connexion.
-const CACHE = 'tracabilite-v5';
+const CACHE = 'tracabilite-v6';
 const FILES = ['./', './index.html', './style.css', './manifest.webmanifest', './icon-192.png', './icon-512.png', './logo.jpg',
   './fonts/nunito.woff2', './fonts/dancing-script.woff2'];
 
@@ -13,7 +13,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
-    fetch(e.request).then(r => {
+    // 'no-cache' : on revalide toujours auprès du serveur (sinon GitHub Pages fait réutiliser l'ancienne copie pendant 10 min).
+    fetch(e.request, { cache: 'no-cache' }).then(r => {
       if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
       return r;
     }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('./index.html')))
