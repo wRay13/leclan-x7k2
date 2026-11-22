@@ -206,7 +206,7 @@ const NEED = {
   newStock: ['stock', 'edit'], stockMove: ['stock', 'edit'], toggleTask: ['clean', 'edit'],
   newReading: ['temp', 'edit'], startCool: ['temp', 'edit'], endCool: ['temp', 'edit'], newOil: ['temp', 'edit'],
   newDish: ['all', 'edit'], delDish: ['all', 'edit'], csv: ['reg', 'view'], print: ['reg', 'view'], printAll: ['all', 'view'],
-  delRow: 'admin', delLabel: 'admin', resetTest: 'admin', delStock: 'admin', backup: 'admin', rename: 'admin', newProfile: 'admin', delProfile: 'admin', editPerms: 'admin',
+  delRow: 'admin', delLabel: 'admin', resetTest: 'admin', ghSetup: 'admin', ghSend: 'admin', ghForget: 'admin', delStock: 'admin', backup: 'admin', rename: 'admin', newProfile: 'admin', delProfile: 'admin', editPerms: 'admin',
   editProduct: 'admin', delProduct: 'admin', editTask: 'admin', delTask: 'admin', delSupplier: 'admin',
   editEquip: 'admin', delEquip: 'admin', editRule: 'admin', delRule: 'admin',
 };
@@ -415,6 +415,12 @@ const views = {
       <div class="row"><button class="btn pri" data-act="backup">${ic('save')} Télécharger une sauvegarde</button>
       <label class="btn">${ic('upload')} Restaurer une sauvegarde<input type="file" id="restore" accept=".json,application/json" hidden></label></div>
       <p class="small muted" style="margin-bottom:0">Dernière sauvegarde : ${S.lastBackup ? fmtDay(S.lastBackup) : 'jamais'}</p></div>
+    <h3>Sauvegarde en ligne (GitHub)</h3>
+    ${ghCfg ? `<div class="card"><p style="margin-top:0">Dépôt privé : <b>${esc(ghCfg.repo)}</b><br><span class="small muted">Dernier envoi : ${ghCfg.last ? fmtFull(ghCfg.last) : 'jamais'} · sauvegardes chiffrées</span></p>
+      <div class="row"><button class="btn pri" data-act="ghSend">${ic('upload')} Envoyer la sauvegarde</button><button class="btn" data-act="ghRestore">${ic('save')} Récupérer la dernière</button></div>
+      <div class="row" style="margin-top:10px"><button class="btn sm" data-act="ghSetup">${ic('edit')} Modifier</button><button class="btn sm danger" data-act="ghForget">${ic('trash')} Retirer</button></div></div>`
+      : `<div class="card"><p style="margin-top:0">Envoyez une copie <b>chiffrée</b> de vos données dans un dépôt GitHub <b>privé</b>, et récupérez-la sur n'importe quel appareil, sans transférer de fichier.</p>
+      <button class="btn pri" data-act="ghSetup">${ic('plus')} Configurer</button></div>`}
     <h3>Mise en service</h3>
     ${S.golive ? `<div class="card"><b>Mise en service le ${fmtDay(S.golive)}.</b> <span class="muted">L'historique saisi depuis cette date est conservé et protégé.</span></div>`
       : `<div class="card"><p style="margin-top:0">Avant de commencer pour de bon, effacez les enregistrements de test : étiquettes, datations, réceptions, températures, nettoyages, huiles. Les profils, produits, tâches, équipements et plats sont conservés.</p>
@@ -576,7 +582,8 @@ const actions = {
       title: 'Créer le profil administrateur', cancel: false, okLabel: 'Créer',
       html: `<img class="dlg-logo" src="logo.jpg" alt=""><p style="margin-top:0">L'administrateur crée les profils de l'équipe et gère les réglages. <b>Retenez bien ce mot de passe</b> : il ne peut pas être récupéré.</p>
         <div class="note" style="margin-bottom:14px"><span>Vous avez déjà utilisé l'application sur un autre appareil ? Récupérez vos profils et vos données avec un fichier de sauvegarde.</span>
-        <label class="btn sm">${ic('upload')} Restaurer une sauvegarde<input type="file" id="restore" accept=".json,application/json" hidden></label></div>`,
+        <div class="row"><button type="button" class="btn sm" data-act="ghRestore">${ic('save')} Depuis GitHub</button>
+        <label class="btn sm">${ic('upload')} Depuis un fichier<input type="file" id="restore" accept=".json,application/json" hidden></label></div></div>`,
       fields: [
         { name: 'name', label: 'Nom de l\'administrateur', required: true },
         { name: 'pw', label: 'Mot de passe', hint: '4 caractères minimum', type: 'password', attrs: PW_ATTRS, required: true, half: true },
@@ -804,6 +811,77 @@ const actions = {
     await idb.clear('photos');
     commit('Données de test effacées');
   },
+  ghSetup() {
+    openForm({
+      title: 'Sauvegarde en ligne (GitHub)', okLabel: 'Enregistrer',
+      html: `<ol class="small" style="margin:0 0 12px;padding-left:20px">
+        <li>Sur github.com, créez un dépôt <b>privé</b> (par exemple <i>leclan-sauvegardes</i>).</li>
+        <li>Créez un <b>jeton d'accès</b> : Settings → Developer settings → Personal access tokens → <i>Fine-grained tokens</i>. Limitez-le à <b>ce seul dépôt</b>, avec le droit <b>Contents : Read and write</b>.</li>
+        <li>Collez-le ci-dessous. Il reste sur cet appareil et n'est jamais inclus dans les sauvegardes.</li></ol>`,
+      fields: [
+        { name: 'repo', label: 'Dépôt', hint: 'proprietaire/depot', value: ghCfg ? ghCfg.repo : '', required: true },
+        { name: 'token', label: 'Jeton d\'accès', type: 'password', required: true }],
+      async submit(v) {
+        try {
+          const repo = v.repo.trim(), cfg = { repo, token: v.token.trim(), chk: ghCfg && ghCfg.repo === repo ? ghCfg.chk : '', last: ghCfg ? ghCfg.last : '' };
+          await ghCheckRepo(cfg); ghCfg = cfg; await ghSave(); commit('Dépôt GitHub enregistré ✓');
+        } catch (e) { alert(e.message); return false; }
+      },
+    });
+  },
+  ghForget() {
+    if (!confirm('Retirer la configuration GitHub de cet appareil ? Les sauvegardes déjà envoyées restent dans le dépôt.')) return;
+    ghCfg = null; ghSave(); commit('Configuration retirée');
+  },
+  ghSend() {
+    if (!ghCfg) return actions.ghSetup();
+    const first = !ghCfg.chk;
+    openForm({
+      title: 'Envoyer la sauvegarde', okLabel: 'Envoyer',
+      html: `<p class="small" style="margin-top:0">${first ? 'Choisissez une <b>phrase secrète</b> (8 caractères minimum) : elle chiffre la sauvegarde. <b>Si vous l\'oubliez, la sauvegarde est perdue</b> : notez-la en lieu sûr.' : 'Entrez votre phrase secrète.'}</p>`,
+      fields: [{ name: 'pw', label: 'Phrase secrète', type: 'password', required: true }, ...(first ? [{ name: 'pw2', label: 'Confirmer la phrase', type: 'password', required: true }] : [])],
+      async submit(v) {
+        if (ghBusy) return false; ghBusy = true;
+        const prev = S.lastBackup;
+        try {
+          if (first) { if (v.pw.length < 8) throw new Error('La phrase doit faire 8 caractères minimum.'); if (v.pw !== v.pw2) throw new Error('Les deux phrases sont différentes.'); }
+          else { try { await decryptText(ghCfg.chk, v.pw); } catch (x) { throw new Error('Cette phrase est différente de celle utilisée jusqu\'ici.'); } }
+          toast('Envoi en cours…');
+          const photos = {}; for (const k of await idb.keys('photos')) photos[k] = await idb.get('photos', k);
+          S.lastBackup = ymd(new Date());
+          const env = await encryptText(JSON.stringify({ app: 'haccp-resto', exportedAt: new Date().toISOString(), state: S, photos }), v.pw);
+          await ghPut(ghCfg, env);
+          if (first) ghCfg.chk = await encryptText('ok', v.pw);
+          ghCfg.last = new Date().toISOString(); await ghSave();
+          commit('Sauvegarde envoyée sur GitHub ✓');
+        } catch (e) { S.lastBackup = prev; alert('Envoi impossible : ' + e.message); return false; }
+        finally { ghBusy = false; }
+      },
+    });
+  },
+  ghRestore() {
+    if (S.currentUser && !isAdmin()) return;
+    const known = !!ghCfg;
+    openForm({
+      title: 'Récupérer la sauvegarde GitHub', okLabel: 'Récupérer',
+      html: known ? `<p class="small" style="margin-top:0">Dépôt : <b>${esc(ghCfg.repo)}</b>. Entrez la phrase secrète utilisée à l'envoi. <b>Toutes les données de cet appareil seront remplacées.</b></p>`
+        : '<p class="small" style="margin-top:0">Indiquez le dépôt privé et le jeton d\'accès créés pour les sauvegardes, puis la phrase secrète. <b>Toutes les données de cet appareil seront remplacées.</b></p>',
+      fields: [...(known ? [] : [{ name: 'repo', label: 'Dépôt', hint: 'proprietaire/depot', required: true }, { name: 'token', label: 'Jeton d\'accès', type: 'password', required: true }]),
+        { name: 'pw', label: 'Phrase secrète', type: 'password', required: true }],
+      async submit(v) {
+        if (ghBusy) return false; ghBusy = true;
+        try {
+          const cfg = known ? ghCfg : { repo: v.repo.trim(), token: v.token.trim(), chk: '', last: '' };
+          if (!known) await ghCheckRepo(cfg);
+          toast('Téléchargement…');
+          const plain = await decryptText(await ghGetFile(cfg), v.pw);
+          cfg.chk = await encryptText('ok', v.pw); ghCfg = cfg; await ghSave();
+          setTimeout(() => restoreText(plain).catch(e => alert('Restauration impossible : ' + e.message)), 60);
+        } catch (e) { alert('Récupération impossible : ' + e.message); return false; }
+        finally { ghBusy = false; }
+      },
+    });
+  },
   async backup() {
     const photos = {}; for (const k of await idb.keys('photos')) photos[k] = await idb.get('photos', k);
     S.lastBackup = ymd(new Date());
@@ -816,14 +894,70 @@ function download(blob, name) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 async function restore(file) {
+  try { await restoreText(await file.text()); }
+  catch (e) { alert('Restauration impossible : ' + e.message); }
+}
+async function restoreText(txt) {
+  const j = JSON.parse(txt);
+  if (j.app !== 'haccp-resto' || !j.state || !Array.isArray(j.state.dlc)) throw new Error('Ce fichier n\'est pas une sauvegarde de l\'application.');
+  if (!confirm(`Remplacer toutes les données de cet appareil par la sauvegarde du ${fmtDay(j.exportedAt)} ?`)) return;
+  S = Object.assign(DEFAULTS(), j.state);
+  await idb.clear('photos'); for (const k in (j.photos || {})) await idb.set('photos', k, j.photos[k]);
+  migrate(); await save(); toast('Sauvegarde restaurée'); lock();
+}
+
+/* ---------- Sauvegarde en ligne : dépôt GitHub PRIVÉ, fichier chiffré (AES-GCM) avec une phrase secrète ---------- */
+const GH_API = 'https://api.github.com', GH_FILE = 'sauvegarde-leclan.enc.json';
+let ghCfg = null;     // { repo, token, chk, last } : stocké à part de S, donc jamais inclus dans les sauvegardes
+let ghBusy = false;
+const ghSave = () => ghCfg ? idb.set('kv', 'ghcfg', ghCfg) : idb.del('kv', 'ghcfg');
+const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function deriveKey(pass, salt) {
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function encryptText(text, pass) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await deriveKey(pass, salt), new TextEncoder().encode(text)));
+  return JSON.stringify({ app: 'haccp-resto-enc', v: 1, salt: b64(salt), iv: b64(iv), data: b64(ct) });
+}
+async function decryptText(envText, pass) {
+  let e; try { e = JSON.parse(envText); } catch (x) { throw new Error('Fichier de sauvegarde illisible.'); }
+  if (e.app !== 'haccp-resto-enc') throw new Error('Ce fichier n\'est pas une sauvegarde chiffrée de l\'application.');
+  const key = await deriveKey(pass, unb64(e.salt));
+  try { return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(e.iv) }, key, unb64(e.data))); }
+  catch (x) { throw new Error('Phrase secrète incorrecte.'); }
+}
+async function ghReq(cfg, path, opts = {}) {
   try {
-    const j = JSON.parse(await file.text());
-    if (j.app !== 'haccp-resto' || !j.state || !Array.isArray(j.state.dlc)) throw new Error('Ce fichier n\'est pas une sauvegarde de l\'application.');
-    if (!confirm(`Remplacer toutes les données de la tablette par la sauvegarde du ${fmtDay(j.exportedAt)} ?`)) return;
-    S = Object.assign(DEFAULTS(), j.state);
-    await idb.clear('photos'); for (const k in (j.photos || {})) await idb.set('photos', k, j.photos[k]);
-    migrate(); await save(); toast('Sauvegarde restaurée'); lock();
-  } catch (e) { alert('Restauration impossible : ' + e.message); }
+    return await fetch(GH_API + path, { cache: 'no-store', ...opts, headers: { Authorization: 'Bearer ' + cfg.token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(opts.headers || {}) } });
+  } catch (e) { throw new Error('Pas de connexion à GitHub. Vérifiez internet.'); }
+}
+const ghFail = r => new Error({
+  401: 'Jeton refusé ou expiré : créez-en un nouveau sur GitHub.',
+  403: 'Accès refusé : le jeton n\'a pas le droit « Contents : lecture et écriture » sur ce dépôt, ou la limite GitHub est atteinte.',
+  404: 'Dépôt ou fichier introuvable : vérifiez le nom (proprietaire/depot) et que le jeton a accès à ce dépôt.',
+  409: 'Conflit pendant l\'envoi : réessayez.',
+  422: 'GitHub a refusé le fichier.' }[r.status] || ('Erreur GitHub ' + r.status));
+async function ghCheckRepo(cfg) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(cfg.repo)) throw new Error('Nom de dépôt invalide : écrivez proprietaire/depot (exemple : wRay13/leclan-sauvegardes).');
+  const r = await ghReq(cfg, '/repos/' + cfg.repo); if (!r.ok) throw ghFail(r);
+  if ((await r.json()).private !== true) throw new Error('Ce dépôt est PUBLIC : refusé. Les sauvegardes doivent aller dans un dépôt privé.');
+}
+async function ghPut(cfg, envText) {
+  const path = `/repos/${cfg.repo}/contents/${GH_FILE}`;
+  let sha; const g = await ghReq(cfg, path);
+  if (g.ok) sha = (await g.json()).sha; else if (g.status !== 404) throw ghFail(g);
+  const body = { message: 'Sauvegarde du ' + new Date().toLocaleString('fr-FR'), content: btoa(envText) }; if (sha) body.sha = sha;
+  const r = await ghReq(cfg, path, { method: 'PUT', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
+  if (!r.ok) throw ghFail(r);
+}
+async function ghGetFile(cfg) {
+  const r = await ghReq(cfg, `/repos/${cfg.repo}/contents/${GH_FILE}`, { headers: { Accept: 'application/vnd.github.raw+json' } });
+  if (r.status === 404) throw new Error('Aucune sauvegarde trouvée dans ce dépôt : envoyez-en une d\'abord depuis l\'autre appareil.');
+  if (!r.ok) throw ghFail(r);
+  return r.text();
 }
 
 /* ---------- Registres : catégories ---------- */
@@ -1191,6 +1325,9 @@ function migrate() {
 (async () => {
   try { const st = await idb.get('kv', 'state'); if (st) S = Object.assign(DEFAULTS(), st); }
   catch (e) { alert('Impossible de lire les données enregistrées : ' + e); }
+  try { ghCfg = await idb.get('kv', 'ghcfg') || null; } catch (e) {}
+  // Nettoyage : d'anciennes versions du service worker pouvaient mettre en cache des réponses d'autres sites.
+  if (window.caches) caches.keys().then(ks => ks.forEach(async k => { const c = await caches.open(k); (await c.keys()).forEach(r => { if (!r.url.startsWith(location.origin)) c.delete(r); }); })).catch(() => {});
   migrate(); restoreSession(); render(); if (!S.currentUser) actions.pickUser();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
