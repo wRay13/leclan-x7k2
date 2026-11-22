@@ -130,6 +130,21 @@ function stampBorn() {
   }
   S.bornInit = true;
 }
+// Suppression d'un enregistrement : libre dans les CORRECTION_HOURS h (motif obligatoire), verrouillée ensuite jusqu'à RETENTION_DAYS jours.
+function removeRecord(key, id, regName, desc) {
+  const it = (S[key] || []).find(x => x.id === id); if (!it) return;
+  const born = new Date((S.born || {})[it.id] || Date.now()), age = Date.now() - born;
+  const recent = age <= CORRECTION_HOURS * 36e5, old = age >= RETENTION_DAYS * 864e5;
+  if (!recent && !old) return alert(`Suppression impossible : une erreur ne peut être corrigée que dans les ${CORRECTION_HOURS} h qui suivent l'enregistrement. Ensuite, les enregistrements de traçabilité sont conservés ${RETENTION_DAYS / 30} mois (suppression possible à partir du ${fmtDay(ymd(addDays(born, RETENTION_DAYS)))}).`);
+  let reason = '';
+  if (recent) {
+    reason = (prompt(`Correction d'une erreur de saisie. Motif de la suppression (obligatoire) :\n${desc}`) || '').trim();
+    if (!reason) return toast('Suppression annulée : motif obligatoire', true);
+  } else if (!confirm('Supprimer définitivement cet enregistrement du registre ?')) return;
+  if (it.photoId) { idb.del('photos', it.photoId); idb.del('photos', 't_' + it.photoId); }
+  S.audit.push({ id: uid(), at: toInput(new Date()), by: S.currentUser, reg: regName, desc, reason: reason || 'Fin de la durée de conservation' });
+  S[key] = S[key].filter(x => x.id !== id); delete S.born[id]; commit('Supprimé');
+}
 async function save() {
   try { stampBorn(); await idb.set('kv', 'state', S); saveErr = false; }
   catch (e) { saveErr = true; console.error(e); alert('Attention : l\'enregistrement a échoué (' + e + '). Faites une sauvegarde depuis Réglages.'); }
@@ -186,7 +201,7 @@ const NEED = {
   newStock: ['stock', 'edit'], stockMove: ['stock', 'edit'], toggleTask: ['clean', 'edit'],
   newReading: ['temp', 'edit'], startCool: ['temp', 'edit'], endCool: ['temp', 'edit'], newOil: ['temp', 'edit'],
   newDish: ['all', 'edit'], delDish: ['all', 'edit'], csv: ['reg', 'view'], print: ['reg', 'view'], printAll: ['all', 'view'],
-  delRow: 'admin', delStock: 'admin', backup: 'admin', rename: 'admin', newProfile: 'admin', delProfile: 'admin', editPerms: 'admin',
+  delRow: 'admin', delLabel: 'admin', delStock: 'admin', backup: 'admin', rename: 'admin', newProfile: 'admin', delProfile: 'admin', editPerms: 'admin',
   editProduct: 'admin', delProduct: 'admin', editTask: 'admin', delTask: 'admin', delSupplier: 'admin',
   editEquip: 'admin', delEquip: 'admin', editRule: 'admin', delRule: 'admin',
 };
@@ -216,7 +231,18 @@ async function hashPw(pw, salt) {
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 async function makePw(pw) { const salt = uid() + uid(); return { salt, hash: await hashPw(pw, salt) }; }
-function lock() { S.currentUser = ''; role = ''; perms = {}; ui.view = 'home'; if ($('#dlg').open) $('#dlg').close(); render(); actions.pickUser(); }
+// La session survit à un rechargement de la page (sessionStorage), mais pas à la fermeture de l'application.
+function setSession(p) {
+  S.currentUser = p.name; role = p.role; perms = permsOf(p);
+  try { sessionStorage.setItem('haccp-session', p.id); } catch (e) {}
+}
+function restoreSession() {
+  try {
+    const p = S.profiles.find(x => x.id === sessionStorage.getItem('haccp-session'));
+    if (p && p.hash) { S.currentUser = p.name; role = p.role; perms = permsOf(p); }
+  } catch (e) {}
+}
+function lock() { try { sessionStorage.removeItem('haccp-session'); } catch (e) {} S.currentUser = ''; role = ''; perms = {}; ui.view = 'home'; if ($('#dlg').open) $('#dlg').close(); render(); actions.pickUser(); }
 
 /* ---------- Fenêtre de saisie générique ---------- */
 function field(f) {
@@ -548,7 +574,7 @@ const actions = {
         const old = S.profiles.find(p => p.name.toLowerCase() === v.name.toLowerCase());
         const p = old || { id: uid(), name: v.name }; if (!old) S.profiles.push(p);
         Object.assign(p, { role: 'admin' }, await makePw(v.pw));
-        S.currentUser = p.name; role = 'admin'; perms = permsOf(p); commit('Bonjour ' + p.name);
+        setSession(p); commit('Bonjour ' + p.name);
       },
     });
   },
@@ -562,7 +588,7 @@ const actions = {
         <p><button type="button" class="btn sm" data-act="pickUser">${ic('arrowLeft')} Autre profil</button></p>`,
       async submit(v, f) {
         if (await hashPw(v.pw, p.salt) !== p.hash) { alert('Mot de passe incorrect.'); f.pw.value = ''; return false; }
-        S.currentUser = p.name; role = p.role; perms = permsOf(p); commit('Bonjour ' + p.name);
+        setSession(p); commit('Bonjour ' + p.name);
       },
     });
   },
@@ -685,7 +711,8 @@ const actions = {
     openForm({
       title: 'Étiquette du ' + fmtFull(l.at), cancelLabel: edit ? 'Annuler' : 'Fermer',
       html: (src ? `<img class="photo" src="${src}" alt="Étiquette" style="margin-bottom:12px">` : '<p>Photo introuvable.</p>') + `<p class="small muted" style="margin-top:0">Prise par ${esc(l.by)}</p>`
-        + (edit ? '' : `<p><b>${esc(l.product || 'Produit non renseigné')}</b>${l.note ? ' · ' + esc(l.note) : ''}</p>`),
+        + (edit ? '' : `<p><b>${esc(l.product || 'Produit non renseigné')}</b>${l.note ? ' · ' + esc(l.note) : ''}</p>`)
+        + (isAdmin() ? `<p style="margin:0 0 6px"><button type="button" class="btn sm danger" data-act="delLabel" data-id="${l.id}">${ic('trash')} Supprimer cette étiquette</button></p>` : ''),
       fields: edit ? [
         { name: 'product', label: 'Produit', hint: 'facultatif', value: l.product, list: [...new Set([...S.labels.map(x => x.product).filter(Boolean).slice(-80), ...S.products.map(x => x.name)])], half: true },
         { name: 'note', label: 'Remarque', hint: 'facultatif', value: l.note, half: true },
@@ -722,20 +749,14 @@ const actions = {
   delRow(d) {
     if (!isAdmin()) return;
     const key = { dlc: 'dlc', rec: 'receptions', clean: 'cleanLog', lab: 'labels', temp: 'temps', cool: 'cooling', oil: 'oil' }[ui.reg];
-    const it = (S[key] || []).find(x => x.id === d.id); if (!it) return;
-    const born = new Date((S.born || {})[it.id] || Date.now()), age = Date.now() - born;
-    const recent = age <= CORRECTION_HOURS * 36e5, old = age >= RETENTION_DAYS * 864e5;
-    if (!recent && !old) return alert(`Suppression impossible : une erreur ne peut être corrigée que dans les ${CORRECTION_HOURS} h qui suivent l'enregistrement. Ensuite, les enregistrements de traçabilité sont conservés ${RETENTION_DAYS / 30} mois (suppression possible à partir du ${fmtDay(ymd(addDays(born, RETENTION_DAYS)))}).`);
     const t = regData(ui.reg, () => true), i = t.items.findIndex(x => x.id === d.id);
-    const desc = i >= 0 ? t.rows[i].slice(0, 3).join(' · ') : '';
-    let reason = '';
-    if (recent) {
-      reason = (prompt(`Correction d'une erreur de saisie. Motif de la suppression (obligatoire) :\n${desc}`) || '').trim();
-      if (!reason) return toast('Suppression annulée : motif obligatoire', true);
-    } else if (!confirm('Supprimer définitivement cet enregistrement du registre ?')) return;
-    if (it.photoId) { idb.del('photos', it.photoId); idb.del('photos', 't_' + it.photoId); }
-    S.audit.push({ id: uid(), at: toInput(new Date()), by: S.currentUser, reg: (REGS.find(r => r[0] === ui.reg) || [])[1] || ui.reg, desc, reason: reason || 'Fin de la durée de conservation' });
-    S[key] = S[key].filter(x => x.id !== d.id); delete S.born[d.id]; commit('Supprimé');
+    removeRecord(key, d.id, (REGS.find(r => r[0] === ui.reg) || [])[1] || ui.reg, i >= 0 ? t.rows[i].slice(0, 3).join(' · ') : '');
+  },
+  delLabel(d) {
+    if (!isAdmin()) return;
+    const l = S.labels.find(x => x.id === d.id); if (!l) return;
+    $('#dlg').close();
+    removeRecord('labels', l.id, 'Étiquettes', `${l.product || 'Sans nom'} · ${fmtFull(l.at)}`);
   },
 
   rename() { openForm({ title: 'Nom de l\'établissement', fields: [{ name: 'name', label: 'Nom', value: S.name, required: true }], submit(v) { S.name = v.name; commit(); } }); },
@@ -1147,7 +1168,7 @@ function migrate() {
 (async () => {
   try { const st = await idb.get('kv', 'state'); if (st) S = Object.assign(DEFAULTS(), st); }
   catch (e) { alert('Impossible de lire les données enregistrées : ' + e); }
-  migrate(); render(); actions.pickUser();
+  migrate(); restoreSession(); render(); if (!S.currentUser) actions.pickUser();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
   setInterval(() => { if (!$('#dlg').open && !['set', 'reg', 'rec', 'lab', 'stock', 'all'].includes(ui.view)) render(); }, 60000);
