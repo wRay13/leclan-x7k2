@@ -92,7 +92,7 @@ const idb = (() => {
 })();
 
 const DEFAULTS = () => ({
-  version: 1, name: 'Le Clan', staff: [], currentUser: '', lastBackup: '', labels: [], stock: [], moves: [], profiles: [], born: {}, bornInit: false, audit: [],
+  version: 1, name: 'Le Clan', staff: [], currentUser: '', lastBackup: '', labels: [], stock: [], moves: [], profiles: [], born: {}, bornInit: false, audit: [], golive: '',
   products: [
     ['Plat cuisiné maison (refroidi)', 3], ['Sauce / fond maison', 3], ['Crudités préparées', 2], ['Viande cuite', 3],
     ['Viande crue portionnée', 2], ['Poisson cru préparé', 1], ['Produit décongelé', 3], ['Charcuterie entamée', 3],
@@ -201,7 +201,7 @@ const NEED = {
   newStock: ['stock', 'edit'], stockMove: ['stock', 'edit'], toggleTask: ['clean', 'edit'],
   newReading: ['temp', 'edit'], startCool: ['temp', 'edit'], endCool: ['temp', 'edit'], newOil: ['temp', 'edit'],
   newDish: ['all', 'edit'], delDish: ['all', 'edit'], csv: ['reg', 'view'], print: ['reg', 'view'], printAll: ['all', 'view'],
-  delRow: 'admin', delLabel: 'admin', delStock: 'admin', backup: 'admin', rename: 'admin', newProfile: 'admin', delProfile: 'admin', editPerms: 'admin',
+  delRow: 'admin', delLabel: 'admin', resetTest: 'admin', delStock: 'admin', backup: 'admin', rename: 'admin', newProfile: 'admin', delProfile: 'admin', editPerms: 'admin',
   editProduct: 'admin', delProduct: 'admin', editTask: 'admin', delTask: 'admin', delSupplier: 'admin',
   editEquip: 'admin', delEquip: 'admin', editRule: 'admin', delRule: 'admin',
 };
@@ -410,6 +410,11 @@ const views = {
       <div class="row"><button class="btn pri" data-act="backup">${ic('save')} Télécharger une sauvegarde</button>
       <label class="btn">${ic('upload')} Restaurer une sauvegarde<input type="file" id="restore" accept=".json,application/json" hidden></label></div>
       <p class="small muted" style="margin-bottom:0">Dernière sauvegarde : ${S.lastBackup ? fmtDay(S.lastBackup) : 'jamais'}</p></div>
+    <h3>Mise en service</h3>
+    ${S.golive ? `<div class="card"><b>Mise en service le ${fmtDay(S.golive)}.</b> <span class="muted">L'historique saisi depuis cette date est conservé et protégé.</span></div>`
+      : `<div class="card"><p style="margin-top:0">Avant de commencer pour de bon, effacez les enregistrements de test : étiquettes, datations, réceptions, températures, nettoyages, huiles. Les profils, produits, tâches, équipements et plats sont conservés.</p>
+      <p class="small muted">À faire <b>une seule fois</b>, juste avant la mise en service : ce bouton disparaît ensuite, pour que l'historique réel ne puisse plus être effacé d'un coup.</p>
+      <button class="btn danger" data-act="resetTest">${ic('trash')} Effacer les données de test</button></div>`}
     <h3>Établissement</h3>
     <div class="card item"><div class="body"><b>${esc(S.name)}</b></div><button class="btn sm" data-act="rename">${ic('edit')} Renommer</button></div>
     <div class="row spread"><h3>Profils</h3><button class="btn sm pri" data-act="newProfile">${ic('plus')} Créer un profil</button></div>
@@ -781,6 +786,17 @@ const actions = {
   },
   delTask(d) { if (!confirm('Retirer cette tâche ? L\'historique reste au registre.')) return; S.tasks = S.tasks.filter(x => x.id !== d.id); commit(); },
 
+  async resetTest() {
+    if (!isAdmin() || S.golive) return;
+    if (!confirm('Effacer TOUS les enregistrements de test (étiquettes et photos, datations, réceptions, températures, refroidissements, huiles, nettoyages) ?\n\nLes profils, produits, tâches, équipements et plats sont conservés.\nCette action est définitive et ce bouton disparaîtra ensuite.')) return;
+    const withStock = confirm('Effacer aussi les articles de stock et leurs mouvements ?\n\nOK = oui, les effacer\nAnnuler = non, les garder');
+    if ((prompt('Pour confirmer, tapez EFFACER') || '').trim().toUpperCase() !== 'EFFACER') return toast('Effacement annulé', true);
+    for (const k of REG_KEYS) S[k] = [];
+    if (withStock) { S.stock = []; S.moves = []; }
+    S.born = {}; S.audit = []; S.golive = ymd(new Date());
+    await idb.clear('photos');
+    commit('Données de test effacées');
+  },
   async backup() {
     const photos = {}; for (const k of await idb.keys('photos')) photos[k] = await idb.get('photos', k);
     S.lastBackup = ymd(new Date());
