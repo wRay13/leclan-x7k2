@@ -1,0 +1,1133 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2a1d13">
+<title>Traçabilité cuisine</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <img src="icon-192.png" alt="">
+  <h1 id="title">Traçabilité cuisine</h1>
+  <span class="date" id="today"></span>
+  <button id="userBtn" data-act="pickUser">Qui êtes-vous ?</button>
+</header>
+<main><div class="wrap" id="view"></div></main>
+<nav id="nav"></nav>
+<dialog id="dlg"></dialog>
+<input type="file" id="labCam" accept="image/*" capture="environment" hidden>
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ---------- Outils ---------- */
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2, '0');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const toInput = d => `${ymd(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const JOURS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+const fmtDay = s => { if (!s) return ''; const [y, m, d] = s.slice(0, 10).split('-'); return `${d}/${m}/${y}`; };
+const fmtDT = s => { if (!s) return ''; const d = new Date(s); return `${JOURS[d.getDay()]} ${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const fmtFull = s => { if (!s) return ''; const d = new Date(s); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const mondayOf = d => { const x = new Date(d); const k = (x.getDay() + 6) % 7; x.setDate(x.getDate() - k); return ymd(x); };
+/* Icônes (traits arrondis, couleur héritée du texte) */
+const ICONS = {
+  home: '<path d="M3 11l9-8 9 8"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/>',
+  tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.4"/>',
+  camera: '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.6"/>',
+  truck: '<path d="M2.5 6h11v10h-11z"/><path d="M13.5 9.5h4l3 3V16h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
+  box: '<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
+  sparkle: '<path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
+  clipboard: '<rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4h6v3H9z"/><path d="M9 12h6M9 16h4"/>',
+  sliders: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.2 3.6-6.5 8-6.5s8 2.3 8 6.5"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  key: '<circle cx="7.5" cy="12" r="3.6"/><path d="M11.1 12H21M17.5 12v3.2M20.5 12v2.2"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  checklist: '<rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4h6v3H9z"/><path d="M9 14l2 2 4-4"/>',
+  trash: '<path d="M4 7h16M6 7l1 13h10l1-13M9 7V4h6v3M10 11v6M14 11v6"/>',
+  save: '<path d="M12 4v11M7.5 11L12 15.5 16.5 11M5 20h14"/>',
+  upload: '<path d="M12 16V5M7.5 9L12 4.5 16.5 9M5 20h14"/>',
+  print: '<path d="M7 9V4h10v5"/><rect x="4" y="9" width="16" height="8" rx="2"/><path d="M7 14h10v6H7z"/>',
+  table: '<rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M4 10h16M4 15h16M10 4v16"/>',
+  edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M14 6l4 4"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 8"/>',
+  arrowLeft: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  thermo: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/><path d="M12 9v7"/>',
+  leaf: '<path d="M5 19c0-9 5-14 15-14 0 10-5 15-14 15"/><path d="M5 19l9-9"/>',
+};
+const ic = (n, c = '') => `<svg class="ic ${c}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+function toast(msg, warn) {
+  const t = $('#toast'); t.innerHTML = ic(warn ? 'lock' : 'check') + '<span>' + esc(String(msg).replace(/\s*✓$/, '')) + '</span>';
+  t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+/* ---------- Stockage (IndexedDB, sur la tablette) ---------- */
+const idb = (() => {
+  let p;
+  const open = () => p || (p = new Promise((res, rej) => {
+    const r = indexedDB.open('haccp-resto', 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore('kv'); r.result.createObjectStore('photos'); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+  const tx = async (store, mode, fn) => { const db = await open(); return new Promise((res, rej) => {
+    const t = db.transaction(store, mode); const rq = fn(t.objectStore(store));
+    t.oncomplete = () => res(rq && rq.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); };
+  return {
+    get: (s, k) => tx(s, 'readonly', o => o.get(k)),
+    set: (s, k, v) => tx(s, 'readwrite', o => o.put(v, k)),
+    del: (s, k) => tx(s, 'readwrite', o => o.delete(k)),
+    keys: s => tx(s, 'readonly', o => o.getAllKeys()),
+    clear: s => tx(s, 'readwrite', o => o.clear()),
+  };
+})();
+
+const DEFAULTS = () => ({
+  version: 1, name: 'Le Clan', staff: [], currentUser: '', lastBackup: '', labels: [], stock: [], moves: [], profiles: [],
+  products: [
+    ['Plat cuisiné maison (refroidi)', 3], ['Sauce / fond maison', 3], ['Crudités préparées', 2], ['Viande cuite', 3],
+    ['Viande crue portionnée', 2], ['Poisson cru préparé', 1], ['Produit décongelé', 3], ['Charcuterie entamée', 3],
+    ['Fromage entamé', 5], ['Crème / lait ouvert', 3], ['Conserve ouverte (transvasée)', 3], ['Mayonnaise maison', 1],
+    ['Pâtisserie maison à la crème', 2], ['Œufs durs écalés', 2],
+  ].map(([name, days]) => ({ id: uid(), name, days })),
+  suppliers: [],
+  tasks: [
+    ['Plans de travail', 'Cuisine', 'daily'], ['Planches, couteaux, petit matériel', 'Cuisine', 'daily'], ['Sols', 'Cuisine', 'daily'],
+    ['Plonge et lave-vaisselle', 'Plonge', 'daily'], ['Poubelles (vidage + lavage)', 'Cuisine', 'daily'],
+    ['Poignées et points de contact', 'Cuisine', 'daily'], ['Sanitaires', 'Sanitaires', 'daily'],
+    ['Frigos / chambre froide (intérieur)', 'Froid', 'weekly'], ['Filtres de hotte', 'Cuisine', 'weekly'], ['Fours', 'Cuisine', 'weekly'],
+    ['Friteuse : contrôle / changement de l\'huile', 'Cuisine', 'weekly'], ['Étagères réserve sèche', 'Réserve', 'weekly'],
+    ['Congélateurs (dégivrage, nettoyage)', 'Froid', 'monthly'], ['Murs et plafonds', 'Cuisine', 'monthly'], ['Siphons et évacuations', 'Cuisine', 'monthly'],
+  ].map(([name, zone, freq]) => ({ id: uid(), name, zone, freq })),
+  dlc: [], receptions: [], cleanLog: [],
+  equip: [['Réfrigérateur 1', 'cold', 4], ['Chambre froide', 'cold', 4], ['Congélateur', 'frozen', -18]].map(([name, kind, limit]) => ({ id: uid(), name, kind, limit })),
+  tempRules: [['Produit frais très périssable', 'max', 4], ['Préparation culinaire élaborée à l\'avance', 'max', 3], ['Denrée périssable d\'origine non animale', 'max', 8], ['Surgelé / congelé', 'max', -18], ['Sec / ambiant (pas de contrôle)', 'none', 0]].map(([name, type, limit]) => ({ id: uid(), name, type, limit })),
+  temps: [], cooling: [], oil: [], dishes: [],
+});
+let S = DEFAULTS();
+const ui = { view: 'home', search: '', labSearch: '', labDays: 7, stockSearch: '', stockCat: '', tempTab: 'eq', allSearch: '', reg: 'dlc', from: ymd(addDays(new Date(), -30)), to: ymd(new Date()) };
+let saveErr = false;
+async function save() {
+  try { await idb.set('kv', 'state', S); saveErr = false; }
+  catch (e) { saveErr = true; console.error(e); alert('Attention : l\'enregistrement a échoué (' + e + '). Faites une sauvegarde depuis Réglages.'); }
+}
+async function commit(msg) { await save(); render(); if (msg && !saveErr) toast(msg); }
+
+/* ---------- Logique métier ---------- */
+const TYPES = ['Ouverture', 'Préparation maison', 'Décongélation', 'Mise sous vide', 'Autre'];
+const FREQ = { daily: 'Chaque jour', weekly: 'Chaque semaine', monthly: 'Chaque mois' };
+const ST_LABEL = { expired: 'Périmé', today: 'Expire aujourd\'hui', soon: 'Expire demain', ok: 'OK' };
+function computeExp(madeAt, dur, unit) {
+  const d = new Date(madeAt); if (isNaN(d) || !(dur >= 0)) return '';
+  if (unit === 'h') return toInput(new Date(d.getTime() + dur * 3600e3));
+  const x = addDays(d, Number(dur)); x.setHours(23, 59, 0, 0); return toInput(x);
+}
+function dlcStatus(e) {
+  const x = new Date(e.expiresAt), now = new Date();
+  if (x < now) return 'expired';
+  if (ymd(x) === ymd(now)) return 'today';
+  if (ymd(x) === ymd(addDays(now, 1))) return 'soon';
+  return 'ok';
+}
+const activeDlc = () => S.dlc.filter(e => e.status === 'active').sort((a, b) => a.expiresAt.localeCompare(b.expiresAt));
+function taskLog(t, now = new Date()) {
+  const today = ymd(now);
+  const from = t.freq === 'daily' ? today : t.freq === 'weekly' ? mondayOf(now) : today.slice(0, 7) + '-01';
+  return S.cleanLog.find(l => l.taskId === t.id && l.date >= from && l.date <= today);
+}
+function needUser() { if (S.currentUser) return true; actions.pickUser(); return false; }
+/* ---------- Profils et mots de passe ---------- */
+let role = '';
+const isAdmin = () => role === 'admin';
+
+/* ---------- Droits par catégorie ---------- */
+let perms = {};
+const CATS = [['dlc', 'Datation'], ['lab', 'Étiquettes'], ['rec', 'Réception'], ['stock', 'Stock'], ['temp', 'Températures'], ['clean', 'Nettoyage'], ['all', 'Allergènes'], ['reg', 'Registre']];
+const LEVELS = [['none', 'Aucun accès'], ['view', 'Lecture seule'], ['edit', 'Saisie']];
+const RANK = { none: 0, view: 1, edit: 2 };
+const ALL_EDIT = () => Object.fromEntries(CATS.map(([k]) => [k, 'edit']));
+const LEGACY = { dlc: 'edit', lab: 'edit', rec: 'edit', stock: 'edit', temp: 'edit', clean: 'edit', all: 'view', reg: 'view' };
+const PRESETS = {
+  resp: ['Responsable de cuisine', { dlc: 'edit', lab: 'edit', rec: 'edit', stock: 'edit', temp: 'edit', clean: 'edit', all: 'edit', reg: 'view' }],
+  cuisine: ['Cuisinier', { dlc: 'edit', lab: 'edit', rec: 'edit', stock: 'edit', temp: 'edit', clean: 'edit', all: 'view', reg: 'none' }],
+  commis: ['Commis / aide de cuisine', { dlc: 'edit', lab: 'edit', rec: 'none', stock: 'view', temp: 'edit', clean: 'edit', all: 'view', reg: 'none' }],
+  plonge: ['Plonge / entretien', { dlc: 'none', lab: 'none', rec: 'none', stock: 'none', temp: 'none', clean: 'edit', all: 'none', reg: 'none' }],
+  salle: ['Salle / service', { dlc: 'view', lab: 'none', rec: 'none', stock: 'view', temp: 'none', clean: 'edit', all: 'view', reg: 'none' }],
+};
+const permsOf = p => p.role === 'admin' ? ALL_EDIT() : { ...LEGACY, ...(p.perms || {}) };
+const can = (cat, lvl = 'view') => isAdmin() || RANK[perms[cat] || 'none'] >= RANK[lvl];
+const CATV = { dlc: 'dlc', lab: 'lab', rec: 'rec', stock: 'stock', temp: 'temp', clean: 'clean', all: 'all', reg: 'reg' };
+// Droit requis par action : [catégorie, niveau] ou 'admin'. Ce qui n'est pas listé est libre.
+const NEED = {
+  newDlc: ['dlc', 'edit'], closeDlc: ['dlc', 'edit'], labShoot: ['lab', 'edit'], newRec: ['rec', 'edit'],
+  newStock: ['stock', 'edit'], stockMove: ['stock', 'edit'], toggleTask: ['clean', 'edit'],
+  newReading: ['temp', 'edit'], startCool: ['temp', 'edit'], endCool: ['temp', 'edit'], newOil: ['temp', 'edit'],
+  newDish: ['all', 'edit'], delDish: ['all', 'edit'], csv: ['reg', 'view'], print: ['reg', 'view'], printAll: ['all', 'view'],
+  delRow: 'admin', delStock: 'admin', backup: 'admin', rename: 'admin', newProfile: 'admin', delProfile: 'admin', editPerms: 'admin',
+  editProduct: 'admin', delProduct: 'admin', editTask: 'admin', delTask: 'admin', delSupplier: 'admin',
+  editEquip: 'admin', delEquip: 'admin', editRule: 'admin', delRule: 'admin',
+};
+function allowed(act, d = {}) {
+  if (act === 'go') return !CATV[d.v] || can(CATV[d.v]);
+  const n = NEED[act]; if (!n) return true;
+  return n === 'admin' ? isAdmin() : can(n[0], n[1]);
+}
+// Retire de l'écran les boutons que le profil n'a pas le droit d'utiliser.
+function applyPerms(root) {
+  root.querySelectorAll('[data-act]').forEach(el => {
+    if (allowed(el.dataset.act, el.dataset)) return;
+    if (el.classList.contains('task')) { el.removeAttribute('data-act'); el.disabled = true; el.style.cursor = 'default'; } else el.remove();
+  });
+}
+const permPills = p => p.role === 'admin' ? '<span class="pill ok">Tous les droits</span>' :
+  (CATS.map(([k, l]) => { const lv = permsOf(p)[k] || 'none'; return lv === 'none' ? '' : `<span class="pill ${lv === 'edit' ? 'ok' : 'view'}">${l}${lv === 'view' ? ' (lecture)' : ''}</span>`; }).join('') || '<span class="pill soon">Aucun accès</span>');
+const permFields = cur => CATS.map(([k, l]) => ({ name: 'p_' + k, label: l, type: 'select', options: LEVELS, value: cur[k] || 'none', half: true }));
+const readPerms = v => Object.fromEntries(CATS.map(([k]) => [k, v['p_' + k] || 'none']));
+const presetField = () => ({ name: 'preset', label: 'Modèle de profil', hint: 'pré-remplit les droits ci-dessous', type: 'select', options: [['', 'Personnalisé'], ...Object.entries(PRESETS).map(([k, v]) => [k, v[0]])], value: '' });
+function presetInput(f, ev) { if (ev.target.name === 'preset' && PRESETS[ev.target.value]) Object.entries(PRESETS[ev.target.value][1]).forEach(([k, lv]) => { f['p_' + k].value = lv; }); }
+function roleInput(f) { CATS.forEach(([k]) => { f['p_' + k].disabled = f.role.value === 'admin'; }); }
+const PW_ATTRS = 'autocomplete="new-password" minlength="4"';
+async function hashPw(pw, salt) {
+  if (!(window.crypto && crypto.subtle)) { alert('Les mots de passe nécessitent une adresse sécurisée (https).'); throw new Error('crypto indisponible'); }
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + pw));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function makePw(pw) { const salt = uid() + uid(); return { salt, hash: await hashPw(pw, salt) }; }
+function lock() { S.currentUser = ''; role = ''; perms = {}; ui.view = 'home'; if ($('#dlg').open) $('#dlg').close(); render(); actions.pickUser(); }
+
+/* ---------- Fenêtre de saisie générique ---------- */
+function field(f) {
+  const a = `name="${f.name}" ${f.required ? 'required' : ''} ${f.attrs || ''}`;
+  const lab = `${esc(f.label)}${f.hint ? ` <span class="h">– ${esc(f.hint)}</span>` : ''}`;
+  let inp;
+  if (f.type === 'select') inp = `<select ${a}>${f.options.map(o => { const [v, l] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(v)}" ${String(v) === String(f.value ?? '') ? 'selected' : ''}>${esc(l)}</option>`; }).join('')}</select>`;
+  else if (f.type === 'textarea') inp = `<textarea ${a}>${esc(f.value)}</textarea>`;
+  else if (f.type === 'photo') inp = `<input type="file" accept="image/*" capture="environment" name="${f.name}">`;
+  else inp = `<input type="${f.type || 'text'}" ${a} value="${esc(f.value)}" ${f.list ? `list="dl-${f.name}"` : ''} autocomplete="off">` +
+    (f.list ? `<datalist id="dl-${f.name}">${f.list.map(v => `<option value="${esc(v)}">`).join('')}</datalist>` : '');
+  return `<label class="f">${lab}${inp}</label>`;
+}
+function openForm({ title, fields = [], html = '', okLabel = 'Enregistrer', submit, onInput, cancel = true, cancelLabel = 'Annuler' }) {
+  const dlg = $('#dlg');
+  const rows = []; let i = 0;
+  while (i < fields.length) {
+    if (fields[i].half && fields[i + 1] && fields[i + 1].half) { rows.push(`<div class="two">${field(fields[i])}${field(fields[i + 1])}</div>`); i += 2; }
+    else rows.push(field(fields[i++]));
+  }
+  dlg.innerHTML = `<form method="dialog"><h2>${esc(title)}</h2><div class="scroll">${html}${rows.join('')}</div>
+    <div class="foot">${cancel ? `<button type="button" class="btn" data-act="closeDlg">${esc(cancelLabel)}</button>` : ''}
+    ${submit ? `<button type="submit" class="btn pri">${esc(okLabel)}</button>` : ''}</div></form>`;
+  const form = dlg.querySelector('form');
+  if (onInput) form.addEventListener('input', ev => onInput(form, ev));
+  form.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const data = Object.fromEntries(new FormData(form).entries());
+    for (const k in data) if (typeof data[k] === 'string') data[k] = data[k].trim();
+    const r = submit ? await submit(data, form) : true;
+    if (r !== false) dlg.close();
+  });
+  if (!dlg.open) dlg.showModal();
+  return form;
+}
+function fileToJpeg(file, max = 1200) {
+  return new Promise((res, rej) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      res(c.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Image illisible')); };
+    img.src = url;
+  });
+}
+
+/* ---------- Vues ---------- */
+const NAV = [['home', 'home', 'Accueil'], ['dlc', 'tag', 'Datation'], ['lab', 'camera', 'Étiquettes'], ['rec', 'truck', 'Réception'], ['stock', 'box', 'Stock'], ['temp', 'thermo', 'Températures'], ['clean', 'sparkle', 'Nettoyage'], ['all', 'leaf', 'Allergènes'], ['reg', 'clipboard', 'Registre'], ['set', 'sliders', 'Réglages']];
+function dlcCard(e) {
+  const st = dlcStatus(e);
+  return `<div class="card ${st}"><div class="item"><div class="body">
+    <div class="title">${esc(e.product)}</div>
+    <div class="small muted">${esc(e.type)} le ${fmtDT(e.madeAt)} · par ${esc(e.by)}${e.lot ? ' · lot ' + esc(e.lot) : ''}${e.note ? ' · ' + esc(e.note) : ''}</div>
+    <div>À consommer jusqu'au <b>${fmtDT(e.expiresAt)}</b> <span class="pill ${st}">${ST_LABEL[st]}</span></div></div>
+    <button class="btn sm ok" data-act="closeDlc" data-id="${e.id}" data-st="used">${ic('check')} Terminé</button>
+    <button class="btn sm danger" data-act="closeDlc" data-id="${e.id}" data-st="discarded">${ic('trash')} Jeté</button></div></div>`;
+}
+const views = {
+  home() {
+    const act = activeDlc(), c = { expired: 0, today: 0, soon: 0, ok: 0 }; act.forEach(e => c[dlcStatus(e)]++);
+    const urgent = act.filter(e => dlcStatus(e) !== 'ok');
+    const done = S.tasks.filter(t => taskLog(t)).length, daily = S.tasks.filter(t => t.freq === 'daily');
+    const dailyDone = daily.filter(t => taskLog(t)).length;
+    const today = ymd(new Date()), recToday = S.receptions.filter(r => r.at.slice(0, 10) === today);
+    const nc = S.receptions.filter(r => !r.conform && r.at.slice(0, 10) >= ymd(addDays(new Date(), -7))).length;
+    const bk = !S.lastBackup ? (S.dlc.length + S.receptions.length + S.cleanLog.length > 0) : S.lastBackup < ymd(addDays(new Date(), -7));
+    const day = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    const sum = !can('dlc') ? 'Bonne journée en cuisine' : urgent.length ? `${urgent.length} produit${urgent.length > 1 ? 's' : ''} à surveiller` : 'Aucune date à surveiller';
+    return `${bk && isAdmin() ? `<div class="note">${ic('save')}<span>Pensez à faire une sauvegarde des données (dernière : ${S.lastBackup ? fmtDay(S.lastBackup) : 'jamais'}).</span> <button class="btn sm" data-act="go" data-v="set">Sauvegarder</button></div>` : ''}
+    <div class="hero"><img src="logo.jpg" alt="Le Clan"><div class="t">
+      <div class="hi">Bonjour ${esc(S.currentUser)}</div>
+      <div class="day">${day}</div>
+      <div class="sum">${sum} · nettoyage du jour ${dailyDone}/${daily.length}</div>
+      <span class="tag">${ic(isAdmin() ? 'key' : 'user')}${isAdmin() ? 'Administrateur' : 'Équipier'}</span></div></div>
+    <div class="tiles">
+      <button class="tile pri" data-act="newDlc"><span class="bub">${ic('tag')}</span><span><b>Dater un produit</b><span class="s">Ouverture, préparation, décongélation</span></span></button>
+      <button class="tile dark" data-act="labShoot"><span class="bub">${ic('camera')}</span><span><b>Photographier une étiquette</b><span class="s">Garder la preuve du lot</span></span></button>
+      <button class="tile ok" data-act="newRec"><span class="bub">${ic('truck')}</span><span><b>Nouvelle réception</b><span class="s">Lot, DLC, température</span></span></button>
+      <button class="tile blue" data-act="go" data-v="stock"><span class="bub">${ic('box')}</span><span><b>Gérer le stock</b><span class="s">Entrées, sorties, inventaire</span></span></button>
+      <button class="tile brick" data-act="go" data-v="temp"><span class="bub">${ic('thermo')}</span><span><b>Températures</b><span class="s">Frigos, refroidissement, huile</span></span></button>
+      <button class="tile sand" data-act="go" data-v="all"><span class="bub">${ic('leaf')}</span><span><b>Allergènes</b><span class="s">Plats et tableau à afficher</span></span></button>
+    </div>
+    <h3>Aujourd'hui</h3>
+    <div class="grid">
+      <div class="card kpi" data-act="go" data-v="dlc"><div class="lab"><span class="bub">${ic('tag')}</span>Produits datés en cours</div><div class="stat">${act.length}</div>
+        <div class="row">${c.expired ? `<span class="pill expired">${c.expired} périmé(s)</span>` : ''}${c.today ? `<span class="pill today">${c.today} aujourd'hui</span>` : ''}${c.soon ? `<span class="pill soon">${c.soon} demain</span>` : ''}${!urgent.length ? '<span class="pill ok">Rien à signaler</span>' : ''}</div></div>
+      <div class="card kpi" data-act="go" data-v="clean"><div class="lab"><span class="bub dk">${ic('sparkle')}</span>Nettoyage du jour</div><div class="stat">${dailyDone}<small> / ${daily.length}</small></div>
+        <div class="small muted">${done}/${S.tasks.length} tâches faites sur la période (jour, semaine, mois)</div></div>
+      <div class="card kpi" data-act="go" data-v="stock"><div class="lab"><span class="bub bl">${ic('box')}</span>Articles en stock</div><div class="stat">${S.stock.length}</div>
+        <div class="row">${stockCount('out') ? `<span class="pill expired">${stockCount('out')} en rupture</span>` : ''}${stockCount('low') ? `<span class="pill today">${stockCount('low')} stock bas</span>` : ''}${!stockCount('out') && !stockCount('low') ? '<span class="pill ok">Aucun stock bas</span>' : ''}</div></div>
+      ${tempKpi()}
+      <div class="card kpi" data-act="go" data-v="rec"><div class="lab"><span class="bub gr">${ic('truck')}</span>Réceptions aujourd'hui</div><div class="stat">${recToday.length}</div>
+        <div class="small">${nc ? `<span class="pill expired">${nc} non-conformité(s) sur 7 jours</span>` : '<span class="pill ok">Aucune non-conformité sur 7 jours</span>'}</div></div>
+    </div>
+    <h3>À traiter en priorité</h3>
+    ${priorityHtml(urgent)}`;
+  },
+  dlc() {
+    const act = activeDlc();
+    return `<div class="row spread"><h2>Datation / DLC</h2><button class="btn pri big" data-act="newDlc">${ic('plus')} Dater un produit</button></div>
+    ${can('dlc', 'edit') ? `<h3>Ajout rapide</h3><div class="row">${S.products.map(p => `<button class="chip" data-act="newDlc" data-p="${p.id}">${esc(p.name)} <span class="muted">J+${p.days}</span></button>`).join('')}</div>` : ''}
+    <h3>En cours (${act.length})</h3>
+    ${act.length ? act.map(dlcCard).join('') : '<div class="card empty">Aucun produit daté en cours.</div>'}`;
+  },
+  lab() {
+    return `<div class="row spread"><h2>Étiquettes produits</h2><button class="btn pri big" data-act="labShoot">${ic('camera')} Photographier une étiquette</button></div>
+    <p class="muted" style="margin:0 0 10px">Photographiez l'étiquette d'origine de chaque produit entamé : elle est datée, signée et conservée ici.</p>
+    <div class="row" style="margin-bottom:12px"><input type="search" id="labSearch" placeholder="Rechercher un produit…" value="${esc(ui.labSearch)}" style="flex:1;min-width:200px">
+      ${[[1, 'Aujourd\'hui'], [7, '7 jours'], [30, '30 jours'], [0, 'Tout']].map(([n, l]) => `<button class="chip ${ui.labDays === n ? 'on' : ''}" data-act="labDays" data-n="${n}">${l}</button>`).join('')}</div>
+    <div id="labList">${labList()}</div>`;
+  },
+  rec() {
+    return `<div class="row spread"><h2>Réception des marchandises</h2><button class="btn pri big" data-act="newRec">${ic('plus')} Nouvelle réception</button></div>
+    <input type="search" id="recSearch" placeholder="Rechercher : produit, fournisseur, n° de lot…" value="${esc(ui.search)}" style="margin:8px 0 12px">
+    <div id="recList">${recList()}</div>`;
+  },
+  stock() {
+    const cats = [...new Set(S.stock.map(a => a.cat).filter(Boolean))].sort();
+    return `<div class="row spread"><h2>Stock</h2><button class="btn pri big" data-act="newStock">${ic('plus')} Nouvel article</button></div>
+    <div class="row" style="margin:8px 0 12px"><input type="search" id="stockSearch" placeholder="Rechercher un article…" value="${esc(ui.stockSearch)}" style="flex:1;min-width:200px">
+      ${[['', 'Tout'], ['!', 'À commander'], ...cats.map(c => [c, c])].map(([v, l]) => `<button class="chip ${ui.stockCat === v ? 'on' : ''}" data-act="stockCat" data-c="${esc(v)}">${esc(l)}</button>`).join('')}</div>
+    <div id="stockList">${stockList()}</div>`;
+  },
+  clean() {
+    const groups = ['daily', 'weekly', 'monthly'].map(f => {
+      const ts = S.tasks.filter(t => t.freq === f); if (!ts.length) return '';
+      return `<h3>${FREQ[f]} (${ts.filter(t => taskLog(t)).length}/${ts.length})</h3>` + ts.map(t => {
+        const l = taskLog(t);
+        return `<button class="card task ${l ? 'done' : ''}" data-act="toggleTask" data-id="${t.id}"><span class="box">${l ? ic('check') : ''}</span>
+          <span style="flex:1"><b>${esc(t.name)}</b><br><span class="small muted">${esc(t.zone)}${l ? ` · fait par ${esc(l.by)} le ${fmtDT(l.at)}` : ''}</span></span></button>`;
+      }).join('');
+    }).join('');
+    return `<div class="row spread"><h2>Plan de nettoyage</h2>${isAdmin() ? `<button class="btn" data-act="go" data-v="set">${ic('edit')} Modifier les tâches</button>` : ''}</div>
+    ${groups || '<div class="card empty">Aucune tâche. Ajoutez-en dans Réglages.</div>'}`;
+  },
+  reg() {
+    const inR = d => d.slice(0, 10) >= ui.from && d.slice(0, 10) <= ui.to;
+    const okKinds = REGS.filter(([k]) => can(REGCAT[k]));
+    if (!okKinds.length) return '<h2>Registre</h2><div class="card empty">Aucun registre accessible avec votre profil.</div>';
+    if (!okKinds.some(([k]) => k === ui.reg)) ui.reg = okKinds[0][0];
+    const t = regData(ui.reg, inR);
+    return `<div class="noprint"><h2>Registre</h2>
+      <div class="row" style="margin-bottom:10px">${REGS.filter(([k]) => can(REGCAT[k])).map(([k, l]) => `<button class="chip ${ui.reg === k ? 'on' : ''}" data-act="reg" data-k="${k}">${l}</button>`).join('')}</div>
+      <div class="row" style="margin-bottom:12px">
+        <label class="small">Du <input type="date" id="regFrom" value="${ui.from}" style="width:auto"></label>
+        <label class="small">au <input type="date" id="regTo" value="${ui.to}" style="width:auto"></label>
+        <button class="btn dark" data-act="csv">${ic('table')} Exporter (Excel)</button><button class="btn" data-act="print">${ic('print')} Imprimer</button></div></div>
+    <div class="printonly"><h2>${esc(S.name)} – ${t.title}</h2><p>Période du ${fmtDay(ui.from)} au ${fmtDay(ui.to)}</p></div>
+    ${t.rows.length ? `<div class="tablewrap"><table><thead><tr>${t.head.map(h => `<th>${h}</th>`).join('')}<th class="noprint"></th></tr></thead><tbody>
+      ${t.rows.map((r, i) => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}<td class="noprint">${t.extra ? t.extra(t.items[i]) : ''}${t.noDel || !isAdmin() ? '' : `<button class="btn sm danger" data-act="delRow" data-id="${t.items[i].id}">${ic('trash')} Suppr.</button>`}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="card empty">Aucun enregistrement sur cette période.</div>'}`;
+  },
+  set() {
+    const li = (txt, act, id) => `<div class="card item"><div class="body">${txt}</div><button class="btn sm danger" data-act="${act}" data-id="${esc(id)}">${ic('trash')} Retirer</button></div>`;
+    if (!isAdmin()) return `<h2>Réglages</h2><div class="card"><p style="margin-top:0">Les réglages (profils, produits, tâches, sauvegarde) sont réservés à l'administrateur.</p>
+      <button class="btn" data-act="changePw">${ic('lock')} Changer mon mot de passe</button></div>`;
+    return `<h2>Réglages</h2>
+    <h3>Sauvegarde</h3>
+    <div class="card"><p style="margin-top:0">Les données sont enregistrées <b>sur cette tablette uniquement</b>. Faites une sauvegarde régulièrement (au moins une fois par semaine) et conservez le fichier ailleurs (clé USB, e-mail, Drive).</p>
+      <div class="row"><button class="btn pri" data-act="backup">${ic('save')} Télécharger une sauvegarde</button>
+      <label class="btn">${ic('upload')} Restaurer une sauvegarde<input type="file" id="restore" accept=".json,application/json" hidden></label></div>
+      <p class="small muted" style="margin-bottom:0">Dernière sauvegarde : ${S.lastBackup ? fmtDay(S.lastBackup) : 'jamais'}</p></div>
+    <h3>Établissement</h3>
+    <div class="card item"><div class="body"><b>${esc(S.name)}</b></div><button class="btn sm" data-act="rename">${ic('edit')} Renommer</button></div>
+    <div class="row spread"><h3>Profils</h3><button class="btn sm pri" data-act="newProfile">${ic('plus')} Créer un profil</button></div>
+    ${S.profiles.map(p => `<div class="card item"><div class="body"><b>${esc(p.name)}</b> <span class="muted">· ${p.role === 'admin' ? ic('key') + ' Administrateur' : 'Équipier'}</span>
+      ${p.hash ? '' : ' <span class="pill today">Mot de passe à définir</span>'}<div class="row" style="margin-top:8px;gap:6px">${permPills(p)}</div></div>
+      <button class="btn sm" data-act="editPerms" data-id="${p.id}">${ic('key')} Droits</button>
+      <button class="btn sm" data-act="changePw" data-id="${p.id}">${ic('lock')} Mot de passe</button>
+      ${p.name === S.currentUser ? '' : `<button class="btn sm danger" data-act="delProfile" data-id="${p.id}">${ic('trash')} Retirer</button>`}</div>`).join('')}
+    <div class="row spread"><h3>Produits et durées de conservation</h3><button class="btn sm" data-act="editProduct">${ic('plus')} Ajouter</button></div>
+    <div class="note">Les durées proposées sont indicatives. Réglez-les selon votre plan de maîtrise sanitaire et les indications des fabricants.</div>
+    ${S.products.map(p => `<div class="card item"><div class="body"><b>${esc(p.name)}</b> <span class="muted">· J+${p.days}</span></div>
+      <button class="btn sm" data-act="editProduct" data-id="${p.id}">${ic('edit')} Modifier</button><button class="btn sm danger" data-act="delProduct" data-id="${p.id}">${ic('trash')} Retirer</button></div>`).join('')}
+    <div class="row spread"><h3>Tâches de nettoyage</h3><button class="btn sm" data-act="editTask">${ic('plus')} Ajouter</button></div>
+    ${S.tasks.map(t => `<div class="card item"><div class="body"><b>${esc(t.name)}</b> <span class="muted">· ${esc(t.zone)} · ${FREQ[t.freq]}</span></div>
+      <button class="btn sm" data-act="editTask" data-id="${t.id}">${ic('edit')} Modifier</button><button class="btn sm danger" data-act="delTask" data-id="${t.id}">${ic('trash')} Retirer</button></div>`).join('')}
+    <div class="row spread"><h3>Équipements à températures contrôlées</h3><button class="btn sm" data-act="editEquip">${ic('plus')} Ajouter</button></div>
+    <div class="note">Limites proposées à titre indicatif : à adapter selon votre plan de maîtrise sanitaire.</div>
+    ${S.equip.map(e => `<div class="card item"><div class="body"><b>${esc(e.name)}</b> <span class="muted">· ${EQ_KIND[e.kind]} ${limTxt(e)}</span></div>
+      <button class="btn sm" data-act="editEquip" data-id="${e.id}">${ic('edit')} Modifier</button><button class="btn sm danger" data-act="delEquip" data-id="${e.id}">${ic('trash')} Retirer</button></div>`).join('')}
+    <div class="row spread"><h3>Seuils de température à réception</h3><button class="btn sm" data-act="editRule">${ic('plus')} Ajouter</button></div>
+    ${S.tempRules.map(r => `<div class="card item"><div class="body"><b>${esc(r.name)}</b> <span class="muted">· ${ruleTxt(r)}</span></div>
+      <button class="btn sm" data-act="editRule" data-id="${r.id}">${ic('edit')} Modifier</button><button class="btn sm danger" data-act="delRule" data-id="${r.id}">${ic('trash')} Retirer</button></div>`).join('')}
+    <h3>Fournisseurs</h3>
+    ${S.suppliers.map(n => li(esc(n), 'delSupplier', n)).join('') || '<div class="card empty">Ils s\'ajoutent automatiquement à chaque réception.</div>'}`;
+  },
+};
+function recList() {
+  const q = ui.search.toLowerCase();
+  const rs = S.receptions.filter(r => !q || [r.product, r.supplier, r.lot].join(' ').toLowerCase().includes(q)).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 100);
+  if (!rs.length) return `<div class="card empty">${q ? 'Aucun résultat.' : 'Aucune réception enregistrée.'}</div>`;
+  return rs.map(r => `<div class="card ${r.conform ? 'ok' : 'expired'}"><div class="item"><div class="body">
+    <div class="title">${esc(r.product)} <span class="muted small">· ${esc(r.supplier)}</span></div>
+    <div>Lot <b>${esc(r.lot || '—')}</b>${r.dlc ? ` · ${r.dlcType} <b>${fmtDay(r.dlc)}</b>` : ''}${r.qty ? ` · ${esc(r.qty)}` : ''}${r.temp !== '' && r.temp != null ? ` · ${esc(r.temp)} °C` : ''}</div>
+    <div class="small muted">Reçu le ${fmtDT(r.at)} par ${esc(r.by)}${r.action ? ' · ' + esc(r.action) : ''}</div></div>
+    <span class="pill ${r.conform ? 'ok' : 'expired'}">${r.conform ? 'Conforme' : 'Non conforme'}</span>
+    ${r.photoId ? `<button class="btn sm" data-act="photo" data-id="${r.photoId}">${ic('image')} Photo</button>` : ''}</div></div>`).join('');
+}
+function labList() {
+  const q = ui.labSearch.toLowerCase(), from = ui.labDays ? ymd(addDays(new Date(), 1 - ui.labDays)) : '';
+  const ls = S.labels.filter(l => l.at.slice(0, 10) >= from && (!q || (l.product + ' ' + l.note).toLowerCase().includes(q))).sort((a, b) => b.at.localeCompare(a.at));
+  if (!ls.length) return `<div class="card empty">${q ? 'Aucun résultat.' : 'Aucune étiquette sur cette période.'}</div>`;
+  const days = {}; ls.forEach(l => (days[l.at.slice(0, 10)] ||= []).push(l));
+  return Object.entries(days).map(([d, items]) => `<h3>${fmtDay(d)} (${items.length})</h3><div class="gal">${items.map(l =>
+    `<button class="thumb" data-act="openLabel" data-id="${l.id}"><img data-thumb="${l.photoId}" alt=""><span><b>${esc(l.product || 'Sans nom')}</b><br>
+     <span class="small muted">${l.at.slice(11, 16)} · ${esc(l.by)}</span></span></button>`).join('')}</div>`).join('');
+}
+function loadThumbs() {
+  document.querySelectorAll('img[data-thumb]:not([src])').forEach(async img => { const s = await idb.get('photos', 't_' + img.dataset.thumb); if (s) img.src = s; });
+}
+async function saveLabelPhoto(file) {
+  try {
+    const photoId = uid();
+    await idb.set('photos', photoId, await fileToJpeg(file, 1600));
+    await idb.set('photos', 't_' + photoId, await fileToJpeg(file, 360));
+    const l = { id: uid(), at: toInput(new Date()), product: '', note: '', by: S.currentUser, photoId };
+    S.labels.push(l); ui.view = 'lab'; await commit('Étiquette enregistrée ✓');
+    actions.openLabel({ id: l.id });
+  } catch (e) { alert('La photo n\'a pas pu être enregistrée : ' + e.message); }
+}
+const fmtQ = n => Number(Number(n).toFixed(3)).toLocaleString('fr-FR');
+const stockSt = a => a.qty <= 0 ? 'out' : (a.min > 0 && a.qty <= a.min ? 'low' : 'ok');
+const stockCount = st => S.stock.filter(a => stockSt(a) === st).length;
+const MOVE = { create: 'Création', in: 'Entrée', out: 'Sortie', set: 'Inventaire' };
+function stockList() {
+  const q = ui.stockSearch.toLowerCase();
+  const ls = S.stock.filter(a => (!q || (a.name + ' ' + a.cat).toLowerCase().includes(q)) &&
+    (!ui.stockCat || (ui.stockCat === '!' ? stockSt(a) !== 'ok' : a.cat === ui.stockCat))).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  if (!ls.length) return `<div class="card empty">${S.stock.length ? 'Aucun article ne correspond.' : 'Aucun article. Ajoutez votre premier article avec le bouton ci-dessus.'}</div>`;
+  return ls.map(a => { const st = stockSt(a); return `<div class="card ${{ out: 'expired', low: 'today', ok: 'ok' }[st]}"><div class="item">
+    <div class="body" data-act="editStock" data-id="${a.id}" style="cursor:pointer"><div class="title">${esc(a.name)} <span class="muted small">· ${esc(a.cat || 'Sans catégorie')}</span></div>
+      <div><b style="font-size:22px">${fmtQ(a.qty)}</b> ${esc(a.unit)} ${st === 'out' ? '<span class="pill expired">Rupture</span>' : st === 'low' ? '<span class="pill today">Stock bas</span>' : ''}
+      ${a.min > 0 ? `<span class="small muted">· seuil ${fmtQ(a.min)}</span>` : ''}</div>
+      <div class="small muted">Dernier mouvement : ${fmtDT(a.updatedAt)} par ${esc(a.updatedBy)}</div></div>
+    <button class="btn ok" data-act="stockMove" data-id="${a.id}" data-t="in">${ic('plus')} Entrée</button>
+    <button class="btn dark" data-act="stockMove" data-id="${a.id}" data-t="out">${ic('minus')} Sortie</button>
+    <button class="btn blue" data-act="stockMove" data-id="${a.id}" data-t="set">${ic('checklist')} Inventaire</button></div></div>`; }).join('');
+}
+function addMove(a, type, qty, after, note) {
+  const now = toInput(new Date());
+  S.moves.push({ id: uid(), itemId: a.id, itemName: a.name, unit: a.unit, type, qty, before: a.qty, after, note: note || '', at: now, by: S.currentUser });
+  a.qty = after; a.updatedAt = now; a.updatedBy = S.currentUser;
+}
+function regData(kind, inR) {
+  if (kind === 'temp') {
+    const items = S.temps.filter(t => inR(t.at)).sort((a, b) => b.at.localeCompare(a.at));
+    return { title: 'Relevés de température', items, head: ['Date', 'Équipement', 'Température (°C)', 'Limite', 'Conformité', 'Action corrective', 'Par'],
+      rows: items.map(t => [fmtFull(t.at), t.equipName, fmtQ(t.value), `${t.kind === 'hot' ? '≥' : '≤'} ${fmtQ(t.limit)} °C`, t.ok ? 'Conforme' : 'HORS LIMITE', t.action, t.by]) };
+  }
+  if (kind === 'cool') {
+    const items = S.cooling.filter(c => c.status === 'done' && inR(c.startAt)).sort((a, b) => b.startAt.localeCompare(a.startAt));
+    return { title: 'Registre des refroidissements', items, head: ['Préparation', 'Début', 'T° début (°C)', 'Fin', 'T° fin (°C)', 'Durée (min)', 'Conformité', 'Action corrective', 'Par'],
+      rows: items.map(c => [c.product, fmtFull(c.startAt), fmtQ(c.startTemp), fmtFull(c.endAt), fmtQ(c.endTemp), c.minutes, c.ok ? 'Conforme' : 'NON CONFORME', c.action, c.endBy || c.by]) };
+  }
+  if (kind === 'oil') {
+    const items = S.oil.filter(o => inR(o.at)).sort((a, b) => b.at.localeCompare(a.at));
+    return { title: 'Registre des huiles de friture', items, head: ['Date', 'Friteuse', 'Composés polaires (%)', 'Décision', 'Par'],
+      rows: items.map(o => [fmtFull(o.at), o.fryer, o.polar === '' ? '' : fmtQ(o.polar), o.action, o.by]) };
+  }
+  if (kind === 'stock') {
+    const items = S.moves.filter(m => inR(m.at)).sort((a, b) => b.at.localeCompare(a.at));
+    return { title: 'Mouvements de stock', items, noDel: true, head: ['Date', 'Article', 'Mouvement', 'Quantité', 'Stock avant', 'Stock après', 'Motif', 'Par'],
+      rows: items.map(m => [fmtFull(m.at), m.itemName, MOVE[m.type], (m.type === 'out' ? '-' : m.type === 'in' ? '+' : '') + fmtQ(m.qty) + ' ' + m.unit, fmtQ(m.before), fmtQ(m.after), m.note, m.by]) };
+  }
+  if (kind === 'lab') {
+    const items = S.labels.filter(l => inR(l.at)).sort((a, b) => b.at.localeCompare(a.at));
+    return { title: 'Registre des étiquettes', items, head: ['Date', 'Produit', 'Remarque', 'Par'],
+      extra: l => `<button class="btn sm" data-act="photo" data-id="${l.photoId}">${ic('image')}</button> `,
+      rows: items.map(l => [fmtFull(l.at), l.product, l.note, l.by]) };
+  }
+  if (kind === 'dlc') {
+    const items = S.dlc.filter(e => inR(e.madeAt)).sort((a, b) => b.madeAt.localeCompare(a.madeAt));
+    const stat = e => e.status === 'active' ? 'En cours' : (e.status === 'used' ? 'Terminé' : 'Jeté') + ` le ${fmtFull(e.closedAt)} par ${e.closedBy}` + (e.closeNote ? ` (${e.closeNote})` : '');
+    return { title: 'Registre de datation', items, head: ['Produit', 'Opération', 'Date', 'À consommer jusqu\'au', 'Lot', 'Remarque', 'Par', 'Statut'],
+      rows: items.map(e => [e.product, e.type, fmtFull(e.madeAt), fmtFull(e.expiresAt), e.lot, e.note, e.by, stat(e)]) };
+  }
+  if (kind === 'rec') {
+    const items = S.receptions.filter(r => inR(r.at)).sort((a, b) => b.at.localeCompare(a.at));
+    return { title: 'Registre de réception', items, head: ['Date', 'Fournisseur', 'Produit', 'N° lot', 'DLC / DDM', 'Quantité', 'T° (°C)', 'Seuil appliqué', 'Conformité', 'Action corrective', 'Par'],
+      extra: r => r.photoId ? `<button class="btn sm" data-act="photo" data-id="${r.photoId}">${ic('image')}</button> ` : '',
+      rows: items.map(r => [fmtFull(r.at), r.supplier, r.product, r.lot, r.dlc ? `${r.dlcType} ${fmtDay(r.dlc)}` : '', r.qty, r.temp, r.tcat ? `${r.tcat} (${r.tlimit})` : '', r.conform ? 'Conforme' : 'NON CONFORME', r.action, r.by]) };
+  }
+  const items = S.cleanLog.filter(l => inR(l.date)).sort((a, b) => b.at.localeCompare(a.at));
+  return { title: 'Registre de nettoyage', items, head: ['Date', 'Tâche', 'Zone', 'Fréquence', 'Fait par'],
+    rows: items.map(l => [fmtFull(l.at), l.taskName, l.zone, FREQ[l.freq] || '', l.by]) };
+}
+function render() {
+  $('#title').textContent = S.name;
+  $('#today').textContent = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('#userBtn').innerHTML = ic('user') + esc(S.currentUser || 'Qui êtes-vous ?');
+  const alerts = activeDlc().filter(e => ['expired', 'today'].includes(dlcStatus(e))).length;
+  $('#nav').innerHTML = !S.currentUser ? '' : NAV.map(([k, i, l]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="go" data-v="${k}"><span class="ico">${ic(i)}</span>${l}${k === 'dlc' && alerts ? `<span class="badge">${alerts}</span>` : ''}</button>`).join('');
+  // Rien de l'application n'est affiché tant que personne n'est connecté : seulement le logo.
+  $('#view').innerHTML = S.currentUser ? views[ui.view]() : '<div class="splash"><img src="logo.jpg" alt="Le Clan"></div>';
+  applyPerms($('#nav')); applyPerms($('#view'));
+  loadThumbs();
+}
+
+/* ---------- Actions ---------- */
+const actions = {
+  go(d) { ui.view = d.v; render(); $('main').scrollTop = 0; },
+  closeDlg() { $('#dlg').close(); },
+  pickUser() {
+    if (!S.profiles.some(p => p.role === 'admin')) return actions.setupAdmin();
+    const logged = !!S.currentUser;
+    openForm({
+      title: logged ? 'Changer de profil' : 'Qui êtes-vous ?', cancel: logged,
+      html: `<img class="dlg-logo" src="logo.jpg" alt="">
+        <div class="pgrid">${S.profiles.map(p => `<button type="button" class="ptile ${p.name === S.currentUser ? 'on' : ''} ${p.role === 'admin' ? 'adm' : ''}" data-act="login" data-id="${p.id}"><span class="av">${esc(p.name.slice(0, 1).toUpperCase())}</span>${esc(p.name)}<small>${p.role === 'admin' ? ic('key') + 'Administrateur' : 'Équipier'}</small></button>`).join('')}</div>
+        ${logged ? `<p><button type="button" class="btn block" data-act="logout">${ic('lock')} Verrouiller l'application</button></p>` : '<p class="small muted center">Touchez votre profil puis entrez votre mot de passe.</p>'}`,
+    });
+  },
+  setupAdmin() {
+    openForm({
+      title: 'Créer le profil administrateur', cancel: false, okLabel: 'Créer',
+      html: '<img class="dlg-logo" src="logo.jpg" alt=""><p style="margin-top:0">L\'administrateur crée les profils de l\'équipe et gère les réglages. <b>Retenez bien ce mot de passe</b> : il ne peut pas être récupéré.</p>',
+      fields: [
+        { name: 'name', label: 'Nom de l\'administrateur', required: true },
+        { name: 'pw', label: 'Mot de passe', hint: '4 caractères minimum', type: 'password', attrs: PW_ATTRS, required: true, half: true },
+        { name: 'pw2', label: 'Confirmer', type: 'password', attrs: PW_ATTRS, required: true, half: true }],
+      async submit(v) {
+        if (v.pw !== v.pw2) { alert('Les deux mots de passe sont différents.'); return false; }
+        const old = S.profiles.find(p => p.name.toLowerCase() === v.name.toLowerCase());
+        const p = old || { id: uid(), name: v.name }; if (!old) S.profiles.push(p);
+        Object.assign(p, { role: 'admin' }, await makePw(v.pw));
+        S.currentUser = p.name; role = 'admin'; perms = permsOf(p); commit('Bonjour ' + p.name);
+      },
+    });
+  },
+  login(d) {
+    const p = S.profiles.find(x => x.id === d.id); if (!p) return;
+    if (!p.hash) return alert('Ce profil n\'a pas encore de mot de passe. L\'administrateur doit en définir un dans Réglages → Profils.');
+    openForm({
+      title: 'Bonjour ' + p.name, cancel: false, okLabel: 'Entrer',
+      fields: [{ name: 'pw', label: 'Mot de passe', type: 'password', attrs: 'autocomplete="current-password" autofocus', required: true }],
+      html: `<div class="center"><span class="ptile ${p.role === 'admin' ? 'adm' : ''}" style="display:inline-flex;min-width:150px;box-shadow:none"><span class="av">${esc(p.name.slice(0, 1).toUpperCase())}</span>${esc(p.name)}</span></div>
+        <p><button type="button" class="btn sm" data-act="pickUser">${ic('arrowLeft')} Autre profil</button></p>`,
+      async submit(v, f) {
+        if (await hashPw(v.pw, p.salt) !== p.hash) { alert('Mot de passe incorrect.'); f.pw.value = ''; return false; }
+        S.currentUser = p.name; role = p.role; perms = permsOf(p); commit('Bonjour ' + p.name);
+      },
+    });
+  },
+  logout() { lock(); },
+  changePw(d) {
+    const p = S.profiles.find(x => x.id === d.id) || S.profiles.find(x => x.name === S.currentUser); if (!p) return;
+    const self = p.name === S.currentUser; if (!self && !isAdmin()) return;
+    openForm({ title: 'Mot de passe de ' + p.name, fields: [
+      ...(self && p.hash ? [{ name: 'cur', label: 'Mot de passe actuel', type: 'password', attrs: 'autocomplete="current-password"', required: true }] : []),
+      { name: 'pw', label: 'Nouveau mot de passe', hint: '4 caractères minimum', type: 'password', attrs: PW_ATTRS, required: true, half: true },
+      { name: 'pw2', label: 'Confirmer', type: 'password', attrs: PW_ATTRS, required: true, half: true }],
+      async submit(v) {
+        if (v.cur !== undefined && await hashPw(v.cur, p.salt) !== p.hash) { alert('Mot de passe actuel incorrect.'); return false; }
+        if (v.pw !== v.pw2) { alert('Les deux mots de passe sont différents.'); return false; }
+        Object.assign(p, await makePw(v.pw)); commit('Mot de passe modifié ✓');
+      } });
+  },
+  delProfile(d) {
+    const p = S.profiles.find(x => x.id === d.id); if (!p || !isAdmin()) return;
+    if (p.name === S.currentUser) return alert('Vous ne pouvez pas retirer votre propre profil.');
+    if (!confirm(`Retirer le profil ${p.name} ? Ses saisies restent au registre.`)) return;
+    S.profiles = S.profiles.filter(x => x !== p); commit('Profil retiré');
+  },
+
+  newDlc(d) {
+    if (!needUser()) return;
+    const p = S.products.find(x => x.id === d.p), now = toInput(new Date()), days = p ? p.days : 3;
+    const lots = [...new Set(S.receptions.slice(-60).reverse().filter(r => r.lot).map(r => r.lot))];
+    openForm({
+      title: 'Dater un produit',
+      fields: [
+        { name: 'product', label: 'Produit', value: p ? p.name : '', required: true, list: S.products.map(x => x.name) },
+        { name: 'type', label: 'Opération', type: 'select', options: TYPES, value: p && /décongel/i.test(p.name) ? 'Décongélation' : 'Ouverture', half: true },
+        { name: 'madeAt', label: 'Date et heure', type: 'datetime-local', value: now, required: true, half: true },
+        { name: 'dur', label: 'Durée de conservation', type: 'number', value: days, attrs: 'min="0" step="1" inputmode="numeric"', required: true, half: true },
+        { name: 'unit', label: 'Unité', type: 'select', options: [['j', 'jours'], ['h', 'heures']], value: 'j', half: true },
+        { name: 'expiresAt', label: 'À consommer jusqu\'au', type: 'datetime-local', value: computeExp(now, days, 'j'), required: true },
+        { name: 'lot', label: 'N° de lot d\'origine', hint: 'facultatif', list: lots, half: true },
+        { name: 'note', label: 'Remarque', hint: 'facultatif', half: true },
+      ],
+      onInput(f, ev) {
+        const n = ev.target.name;
+        if (n === 'product') { const m = S.products.find(x => x.name === f.product.value); if (m) { f.dur.value = m.days; f.unit.value = 'j'; } }
+        if (['product', 'madeAt', 'dur', 'unit'].includes(n)) f.expiresAt.value = computeExp(f.madeAt.value, Number(f.dur.value), f.unit.value);
+      },
+      submit(v) {
+        if (v.expiresAt < v.madeAt) { alert('La date limite est avant la date de l\'opération.'); return false; }
+        S.dlc.push({ id: uid(), product: v.product, type: v.type, madeAt: v.madeAt, expiresAt: v.expiresAt, lot: v.lot, note: v.note, by: S.currentUser, status: 'active' });
+        commit('Produit daté ✓');
+      },
+    });
+  },
+  closeDlc(d) {
+    if (!needUser()) return;
+    const e = S.dlc.find(x => x.id === d.id); if (!e) return;
+    const fin = note => { Object.assign(e, { status: d.st, closedAt: toInput(new Date()), closedBy: S.currentUser, closeNote: note || '' }); commit(d.st === 'used' ? 'Produit terminé' : 'Produit jeté, noté au registre'); };
+    if (d.st === 'used') return fin();
+    openForm({ title: `Jeter : ${e.product}`, fields: [{ name: 'note', label: 'Motif', value: dlcStatus(e) === 'expired' ? 'Date dépassée' : '', list: ['Date dépassée', 'Aspect / odeur', 'Rupture de la chaîne du froid', 'Erreur de préparation'] }], okLabel: 'Confirmer', submit(v) { fin(v.note); } });
+  },
+
+  stockCat(d) { ui.stockCat = d.c; render(); },
+  newStock() {
+    if (!needUser()) return;
+    openForm({ title: 'Nouvel article en stock', fields: [
+      { name: 'name', label: 'Article', required: true },
+      { name: 'cat', label: 'Catégorie', list: [...new Set([...S.stock.map(a => a.cat).filter(Boolean), 'Frais', 'Épicerie', 'Surgelés', 'Boissons', 'Emballages', 'Entretien'])], half: true },
+      { name: 'unit', label: 'Unité', value: 'kg', required: true, list: ['kg', 'g', 'L', 'pièce', 'colis', 'bouteille', 'boîte', 'sachet'], half: true },
+      { name: 'qty', label: 'Quantité en stock', type: 'number', value: 0, attrs: 'min="0" step="any" inputmode="decimal"', required: true, half: true },
+      { name: 'min', label: 'Seuil d\'alerte', hint: '0 = aucun', type: 'number', value: 0, attrs: 'min="0" step="any" inputmode="decimal"', half: true }],
+      submit(v) {
+        if (S.stock.some(a => a.name.toLowerCase() === v.name.toLowerCase())) { alert('Cet article existe déjà.'); return false; }
+        const a = { id: uid(), name: v.name, cat: v.cat, unit: v.unit, qty: 0, min: Number(v.min) || 0, createdAt: toInput(new Date()), createdBy: S.currentUser };
+        S.stock.push(a); addMove(a, 'create', Number(v.qty) || 0, Number(v.qty) || 0, 'Création de l\'article');
+        commit('Article ajouté ✓');
+      } });
+  },
+  stockMove(d) {
+    if (!needUser()) return;
+    const a = S.stock.find(x => x.id === d.id), t = d.t; if (!a) return;
+    const motifs = { in: ['Livraison', 'Retour en stock', 'Production maison'], out: ['Utilisation cuisine', 'Perte / casse', 'Périmé', 'Repas du personnel'], set: ['Inventaire'] }[t];
+    openForm({ title: `${{ in: 'Entrée', out: 'Sortie', set: 'Inventaire' }[t]} : ${a.name}`,
+      html: `<p style="margin-top:0">Stock actuel : <b>${fmtQ(a.qty)} ${esc(a.unit)}</b></p>`,
+      fields: [
+        { name: 'qty', label: t === 'set' ? `Quantité comptée (${a.unit})` : `Quantité (${a.unit})`, type: 'number', value: t === 'set' ? a.qty : '', attrs: `min="0" step="any" inputmode="decimal" ${t === 'set' ? '' : 'autofocus'}`, required: true, half: true },
+        { name: 'note', label: 'Motif', value: motifs[0], list: motifs, half: true }],
+      submit(v) {
+        const q = Number(v.qty); if (!(q >= 0) || (t !== 'set' && q === 0)) { alert('Indiquez une quantité.'); return false; }
+        if (t === 'out' && q > a.qty && !confirm(`La sortie dépasse le stock (${fmtQ(a.qty)} ${a.unit}). Le stock sera mis à 0. Continuer ?`)) return false;
+        const after = Math.round((t === 'in' ? a.qty + q : t === 'out' ? Math.max(0, a.qty - q) : q) * 1000) / 1000;
+        addMove(a, t, t === 'set' ? q : q, after, v.note);
+        commit('Stock mis à jour ✓');
+      } });
+  },
+  editStock(d) {
+    const a = S.stock.find(x => x.id === d.id); if (!a) return;
+    const edit = can('stock', 'edit'), hist = S.moves.filter(m => m.itemId === a.id).slice(-8).reverse();
+    openForm({ title: a.name, cancelLabel: edit ? 'Annuler' : 'Fermer',
+      html: `<p class="small muted" style="margin-top:0">Créé le ${fmtFull(a.createdAt)} par ${esc(a.createdBy)}</p>`
+        + (edit ? '' : `<p><b>${fmtQ(a.qty)} ${esc(a.unit)}</b> en stock${a.min > 0 ? ' · seuil ' + fmtQ(a.min) : ''}</p>`),
+      fields: edit ? [
+        { name: 'name', label: 'Article', value: a.name, required: true },
+        { name: 'cat', label: 'Catégorie', value: a.cat, list: [...new Set(S.stock.map(x => x.cat).filter(Boolean))], half: true },
+        { name: 'unit', label: 'Unité', value: a.unit, required: true, half: true },
+        { name: 'min', label: 'Seuil d\'alerte', hint: '0 = aucun', type: 'number', value: a.min, attrs: 'min="0" step="any" inputmode="decimal"' }] : [],
+      submit: edit ? (v => { Object.assign(a, { name: v.name, cat: v.cat, unit: v.unit, min: Number(v.min) || 0 }); commit(); }) : undefined });
+    $('#dlg .scroll').insertAdjacentHTML('beforeend', `<h3>Derniers mouvements</h3><div class="tablewrap"><table><tbody>${hist.map(m =>
+      `<tr><td>${fmtFull(m.at)}</td><td>${MOVE[m.type]}</td><td>${fmtQ(m.before)} → <b>${fmtQ(m.after)}</b></td><td>${esc(m.note)}</td><td>${esc(m.by)}</td></tr>`).join('')}</tbody></table></div>
+      ${isAdmin() ? `<p><button type="button" class="btn sm danger" data-act="delStock" data-id="${a.id}">${ic('trash')} Supprimer l'article</button></p>` : ''}`);
+  },
+  delStock(d) {
+    const a = S.stock.find(x => x.id === d.id);
+    if (!a || !isAdmin() || !confirm(`Supprimer « ${a.name} » du stock ? Ses mouvements restent au registre.`)) return;
+    S.stock = S.stock.filter(x => x !== a); $('#dlg').close(); commit('Article supprimé');
+  },
+  labShoot() { if (!needUser()) return; const i = $('#labCam'); i.value = ''; i.click(); },
+  labDays(d) { ui.labDays = Number(d.n); render(); },
+  async openLabel(d) {
+    const l = S.labels.find(x => x.id === d.id); if (!l) return;
+    const src = await idb.get('photos', l.photoId), edit = can('lab', 'edit');
+    openForm({
+      title: 'Étiquette du ' + fmtFull(l.at), cancelLabel: edit ? 'Annuler' : 'Fermer',
+      html: (src ? `<img class="photo" src="${src}" alt="Étiquette" style="margin-bottom:12px">` : '<p>Photo introuvable.</p>') + `<p class="small muted" style="margin-top:0">Prise par ${esc(l.by)}</p>`
+        + (edit ? '' : `<p><b>${esc(l.product || 'Produit non renseigné')}</b>${l.note ? ' · ' + esc(l.note) : ''}</p>`),
+      fields: edit ? [
+        { name: 'product', label: 'Produit', hint: 'facultatif', value: l.product, list: [...new Set([...S.labels.map(x => x.product).filter(Boolean).slice(-80), ...S.products.map(x => x.name)])], half: true },
+        { name: 'note', label: 'Remarque', hint: 'facultatif', value: l.note, half: true },
+      ] : [],
+      submit: edit ? (v => { l.product = v.product; l.note = v.note; commit(); }) : undefined,
+    });
+  },
+  async photo(d) {
+    const src = await idb.get('photos', d.id);
+    openForm({ title: 'Photo de l\'étiquette', html: src ? `<img class="photo" src="${src}" alt="Étiquette">` : '<p>Photo introuvable.</p>' });
+  },
+
+  toggleTask(d) {
+    if (!needUser()) return;
+    const t = S.tasks.find(x => x.id === d.id), l = taskLog(t);
+    if (l) {
+      if (!isAdmin() && !(l.by === S.currentUser && Date.now() - new Date(l.at) < 15 * 60000)) return toast('Seul l\'auteur peut annuler, dans les 15 minutes', true);
+      if (!confirm(`Annuler « ${t.name} » (fait par ${l.by}) ?`)) return;
+      S.cleanLog = S.cleanLog.filter(x => x !== l); return commit('Annulé');
+    }
+    const now = new Date();
+    S.cleanLog.push({ id: uid(), taskId: t.id, taskName: t.name, zone: t.zone, freq: t.freq, date: ymd(now), at: toInput(now), by: S.currentUser });
+    commit('Fait ✓');
+  },
+
+  reg(d) { ui.reg = d.k; render(); },
+  print() { window.print(); },
+  csv() {
+    const t = regData(ui.reg, d => d.slice(0, 10) >= ui.from && d.slice(0, 10) <= ui.to);
+    const q = c => `"${String(c ?? '').replace(/"/g, '""')}"`;
+    const txt = '﻿' + [t.head, ...t.rows].map(r => r.map(q).join(';')).join('\r\n');
+    download(new Blob([txt], { type: 'text/csv;charset=utf-8' }), `${ui.reg}_${ui.from}_${ui.to}.csv`);
+  },
+  delRow(d) {
+    if (!isAdmin()) return;
+    const key = { dlc: 'dlc', rec: 'receptions', clean: 'cleanLog', lab: 'labels', temp: 'temps', cool: 'cooling', oil: 'oil' }[ui.reg];
+    const it = (S[key] || []).find(x => x.id === d.id); if (!it) return;
+    const t = new Date(it.at || it.madeAt || it.startAt);
+    if (Date.now() - t < RETENTION_DAYS * 864e5) return alert(`Suppression impossible : les enregistrements de traçabilité doivent être conservés au moins ${RETENTION_DAYS / 30} mois. Elle ne sera possible qu'à partir du ${fmtDay(ymd(addDays(t, RETENTION_DAYS)))}.`);
+    if (!confirm('Supprimer définitivement cet enregistrement du registre ?')) return;
+    if (it.photoId) { idb.del('photos', it.photoId); idb.del('photos', 't_' + it.photoId); }
+    S[key] = S[key].filter(x => x.id !== d.id); commit('Supprimé');
+  },
+
+  rename() { openForm({ title: 'Nom de l\'établissement', fields: [{ name: 'name', label: 'Nom', value: S.name, required: true }], submit(v) { S.name = v.name; commit(); } }); },
+  addStaff() { openForm({ title: 'Ajouter à l\'équipe', fields: [{ name: 'name', label: 'Prénom', required: true }], submit(v) { if (!S.staff.includes(v.name)) S.staff.push(v.name); commit(); } }); },
+  delStaff(d) { if (!confirm(`Retirer ${d.id} de l'équipe ? Ses saisies restent au registre.`)) return; S.staff = S.staff.filter(n => n !== d.id); if (S.currentUser === d.id) S.currentUser = ''; commit(); },
+  delSupplier(d) { S.suppliers = S.suppliers.filter(n => n !== d.id); commit(); },
+  editProduct(d) {
+    const p = S.products.find(x => x.id === d.id);
+    openForm({ title: p ? 'Modifier le produit' : 'Nouveau produit', fields: [
+      { name: 'name', label: 'Nom', value: p ? p.name : '', required: true },
+      { name: 'days', label: 'Durée de conservation (jours)', type: 'number', value: p ? p.days : 3, attrs: 'min="0" step="1" inputmode="numeric"', required: true }],
+      submit(v) { if (p) Object.assign(p, { name: v.name, days: Number(v.days) }); else S.products.push({ id: uid(), name: v.name, days: Number(v.days) }); commit(); } });
+  },
+  delProduct(d) { if (!confirm('Retirer ce produit de la liste ?')) return; S.products = S.products.filter(x => x.id !== d.id); commit(); },
+  editTask(d) {
+    const t = S.tasks.find(x => x.id === d.id);
+    openForm({ title: t ? 'Modifier la tâche' : 'Nouvelle tâche de nettoyage', fields: [
+      { name: 'name', label: 'Tâche', value: t ? t.name : '', required: true },
+      { name: 'zone', label: 'Zone', value: t ? t.zone : 'Cuisine', required: true, list: [...new Set(S.tasks.map(x => x.zone))], half: true },
+      { name: 'freq', label: 'Fréquence', type: 'select', options: Object.entries(FREQ), value: t ? t.freq : 'daily', half: true }],
+      submit(v) { if (t) Object.assign(t, v); else S.tasks.push({ id: uid(), ...v }); commit(); } });
+  },
+  delTask(d) { if (!confirm('Retirer cette tâche ? L\'historique reste au registre.')) return; S.tasks = S.tasks.filter(x => x.id !== d.id); commit(); },
+
+  async backup() {
+    const photos = {}; for (const k of await idb.keys('photos')) photos[k] = await idb.get('photos', k);
+    S.lastBackup = ymd(new Date());
+    download(new Blob([JSON.stringify({ app: 'haccp-resto', exportedAt: new Date().toISOString(), state: S, photos })], { type: 'application/json' }), `sauvegarde-tracabilite-${S.lastBackup}.json`);
+    commit('Sauvegarde téléchargée');
+  },
+};
+function download(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+async function restore(file) {
+  try {
+    const j = JSON.parse(await file.text());
+    if (j.app !== 'haccp-resto' || !j.state || !Array.isArray(j.state.dlc)) throw new Error('Ce fichier n\'est pas une sauvegarde de l\'application.');
+    if (!confirm(`Remplacer toutes les données de la tablette par la sauvegarde du ${fmtDay(j.exportedAt)} ?`)) return;
+    S = Object.assign(DEFAULTS(), j.state);
+    await idb.clear('photos'); for (const k in (j.photos || {})) await idb.set('photos', k, j.photos[k]);
+    migrate(); await save(); toast('Sauvegarde restaurée'); lock();
+  } catch (e) { alert('Restauration impossible : ' + e.message); }
+}
+
+/* ---------- Registres : catégories ---------- */
+const REGS = [['dlc', 'Datation'], ['lab', 'Étiquettes'], ['rec', 'Réceptions'], ['stock', 'Stock'], ['temp', 'Températures'], ['cool', 'Refroidissements'], ['oil', 'Huiles'], ['clean', 'Nettoyage']];
+const REGCAT = { dlc: 'dlc', lab: 'lab', rec: 'rec', stock: 'stock', temp: 'temp', cool: 'temp', oil: 'temp', clean: 'clean' };
+const RETENTION_DAYS = 180;   // durée minimale avant suppression possible d'un enregistrement (6 mois)
+
+/* ---------- Températures, refroidissement, huiles ---------- */
+const EQ_KIND = { cold: 'Froid positif', frozen: 'Froid négatif', hot: 'Maintien au chaud' };
+const eqOk = (e, v) => e.kind === 'hot' ? v >= e.limit : v <= e.limit;
+const limTxt = e => `${e.kind === 'hot' ? '≥' : '≤'} ${fmtQ(e.limit)} °C`;
+const ruleOk = (r, v) => r.type === 'none' || (r.type === 'min' ? v >= r.limit : v <= r.limit);
+const ruleTxt = r => r.type === 'none' ? 'sans contrôle' : `${r.type === 'min' ? '≥' : '≤'} ${fmtQ(r.limit)} °C`;
+const lastTemp = e => S.temps.filter(t => t.equipId === e.id).sort((a, b) => b.at.localeCompare(a.at))[0];
+const COOL_MAX_MIN = 120, COOL_END_MAX = 10;
+const OIL_ACTIONS = ['Huile conservée', 'Dernier usage avant changement', 'Huile changée'];
+const polarSt = p => p > 25 ? 'expired' : p >= 20 ? 'today' : 'ok';
+const mins = (a, b) => Math.max(0, Math.round((new Date(b) - new Date(a)) / 60000));
+const hm = m => `${Math.floor(m / 60)} h ${pad(m % 60)}`;
+
+function tempAlerts() {
+  const out = [];
+  S.equip.forEach(e => {
+    const l = lastTemp(e);
+    if (l && !l.ok) out.push(`<div class="card expired"><div class="item"><div class="body"><div class="title">${esc(e.name)} : température hors limite</div>
+      <div class="small muted">Dernier relevé ${fmtDT(l.at)} par ${esc(l.by)} : <b>${fmtQ(l.value)} °C</b> (limite ${limTxt(e)})${l.action ? ' · ' + esc(l.action) : ''}</div></div>
+      <button class="btn sm" data-act="go" data-v="temp">${ic('thermo')} Voir</button></div></div>`);
+  });
+  S.cooling.filter(c => c.status === 'running' && mins(c.startAt, new Date()) > COOL_MAX_MIN).forEach(c => {
+    out.push(`<div class="card expired"><div class="item"><div class="body"><div class="title">Refroidissement en cours depuis plus de 2 h : ${esc(c.product)}</div>
+      <div class="small muted">Début ${fmtDT(c.startAt)} à ${fmtQ(c.startTemp)} °C · par ${esc(c.by)}</div></div>
+      <button class="btn sm ok" data-act="endCool" data-id="${c.id}">${ic('check')} Terminer</button></div></div>`);
+  });
+  return out;
+}
+function priorityHtml(urgent) {
+  const parts = [];
+  if (can('dlc')) parts.push(...urgent.map(dlcCard));
+  if (can('temp')) parts.push(...tempAlerts());
+  return parts.length ? parts.join('') : '<div class="card empty">Rien à signaler : aucune date dépassée, aucune température hors limite.</div>';
+}
+function tempKpi() {
+  const today = ymd(new Date()), n = S.equip.length;
+  const done = S.equip.filter(e => S.temps.some(t => t.equipId === e.id && t.at.slice(0, 10) === today)).length;
+  const bad = S.equip.filter(e => { const l = lastTemp(e); return l && !l.ok; }).length;
+  return `<div class="card kpi" data-act="go" data-v="temp"><div class="lab"><span class="bub rd">${ic('thermo')}</span>Relevés de température</div><div class="stat">${done}<small> / ${n}</small></div>
+    <div class="row">${bad ? `<span class="pill expired">${bad} hors limite</span>` : ''}${done < n ? `<span class="pill soon">${n - done} à relever aujourd'hui</span>` : '<span class="pill ok">Tous relevés aujourd\'hui</span>'}</div></div>`;
+}
+
+function tempEq() {
+  const today = ymd(new Date());
+  if (!S.equip.length) return '<div class="card empty">Aucun équipement. L\'administrateur en ajoute dans Réglages.</div>';
+  return '<h3>Relevé des équipements</h3>' + S.equip.map(e => {
+    const l = lastTemp(e), td = l && l.at.slice(0, 10) === today, st = !l ? 'soon' : !l.ok ? 'expired' : td ? 'ok' : 'soon';
+    return `<div class="card ${st}"><div class="item"><div class="body"><div class="title">${esc(e.name)} <span class="muted small">· ${EQ_KIND[e.kind]} ${limTxt(e)}</span></div>
+      ${l ? `<div><b style="font-size:22px">${fmtQ(l.value)} °C</b> <span class="pill ${l.ok ? 'ok' : 'expired'}">${l.ok ? 'Conforme' : 'Hors limite'}</span> ${td ? '' : '<span class="pill soon">Pas de relevé aujourd\'hui</span>'}</div>
+      <div class="small muted">Dernier relevé ${fmtDT(l.at)} par ${esc(l.by)}${l.action ? ' · ' + esc(l.action) : ''}</div>` : '<div><span class="pill soon">Aucun relevé</span></div>'}</div>
+      <button class="btn pri" data-act="newReading" data-id="${e.id}">${ic('thermo')} Relever</button></div></div>`;
+  }).join('');
+}
+function tempCool() {
+  const run = S.cooling.filter(c => c.status === 'running').sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const done = S.cooling.filter(c => c.status === 'done').sort((a, b) => b.endAt.localeCompare(a.endAt)).slice(0, 15);
+  return `<div class="row spread"><h3>Refroidissements en cours</h3><button class="btn pri" data-act="startCool">${ic('plus')} Démarrer un refroidissement</button></div>
+    <div class="note">Repère courant : passer de +63 °C à +10 °C en moins de 2 heures. À valider selon votre plan de maîtrise sanitaire.</div>
+    ${run.length ? run.map(c => {
+      const m = mins(c.startAt, new Date()), st = m > COOL_MAX_MIN ? 'expired' : m > 90 ? 'today' : 'ok';
+      return `<div class="card ${st}"><div class="item"><div class="body"><div class="title">${esc(c.product)}</div>
+        <div class="small muted">Début ${fmtDT(c.startAt)} à ${fmtQ(c.startTemp)} °C · par ${esc(c.by)}</div>
+        <div><b>${hm(m)}</b> <span class="pill ${st}">${m > COOL_MAX_MIN ? 'Plus de 2 h' : 'En cours'}</span></div></div>
+        <button class="btn ok" data-act="endCool" data-id="${c.id}">${ic('check')} Terminer</button></div></div>`;
+    }).join('') : '<div class="card empty">Aucun refroidissement en cours.</div>'}
+    <h3>Derniers refroidissements terminés</h3>
+    ${done.length ? done.map(c => `<div class="card ${c.ok ? 'ok' : 'expired'}"><div class="item"><div class="body"><div class="title">${esc(c.product)}</div>
+      <div class="small muted">${fmtDT(c.startAt)} (${fmtQ(c.startTemp)} °C) → ${fmtDT(c.endAt)} (${fmtQ(c.endTemp)} °C) · ${hm(c.minutes)}${c.action ? ' · ' + esc(c.action) : ''}</div></div>
+      <span class="pill ${c.ok ? 'ok' : 'expired'}">${c.ok ? 'Conforme' : 'Non conforme'}</span></div></div>`).join('') : '<div class="card empty">Aucun refroidissement terminé.</div>'}`;
+}
+function tempOil() {
+  const ls = S.oil.slice().sort((a, b) => b.at.localeCompare(a.at)).slice(0, 20), has = o => o.polar !== '' && o.polar != null;
+  return `<div class="row spread"><h3>Contrôle des huiles de friture</h3><button class="btn pri" data-act="newOil">${ic('plus')} Nouveau contrôle</button></div>
+    <div class="note">Une huile dont le taux de composés polaires dépasse 25 % doit être changée. Entre 20 et 25 %, elle est dégradée : à surveiller de près.</div>
+    ${ls.length ? ls.map(o => `<div class="card ${has(o) ? polarSt(Number(o.polar)) : 'ok'}"><div class="item"><div class="body">
+      <div class="title">${esc(o.fryer)} · ${has(o) ? fmtQ(o.polar) + ' % de composés polaires' : 'Changement sans mesure'}</div>
+      <div class="small muted">${fmtDT(o.at)} par ${esc(o.by)} · ${esc(o.action)}</div></div>
+      ${has(o) ? `<span class="pill ${polarSt(Number(o.polar))}">${Number(o.polar) > 25 ? 'À changer' : Number(o.polar) >= 20 ? 'Dégradée' : 'Correcte'}</span>` : ''}</div></div>`).join('') : '<div class="card empty">Aucun contrôle enregistré.</div>'}`;
+}
+views.temp = function () {
+  const tabs = [['eq', 'Équipements'], ['cool', 'Refroidissement'], ['oil', 'Huile de friture']];
+  return `<h2>Températures et contrôles</h2>
+    <div class="row" style="margin-bottom:6px">${tabs.map(([k, l]) => `<button class="chip ${ui.tempTab === k ? 'on' : ''}" data-act="tempTab" data-k="${k}">${l}</button>`).join('')}</div>`
+    + ({ eq: tempEq, cool: tempCool, oil: tempOil }[ui.tempTab] || tempEq)();
+};
+
+/* ---------- Allergènes ---------- */
+const ALLERGENS = [['gluten', 'Gluten (céréales)'], ['crustaces', 'Crustacés'], ['oeufs', 'Œufs'], ['poissons', 'Poissons'], ['arachides', 'Arachides'], ['soja', 'Soja'], ['lait', 'Lait'],
+  ['coques', 'Fruits à coque'], ['celeri', 'Céleri'], ['moutarde', 'Moutarde'], ['sesame', 'Sésame'], ['sulfites', 'Sulfites (SO₂)'], ['lupin', 'Lupin'], ['mollusques', 'Mollusques']];
+const ALN = Object.fromEntries(ALLERGENS);
+const ALCATS = ['Entrée', 'Plat', 'Dessert', 'Boisson', 'Autre'];
+const dishSort = (a, b) => ALCATS.indexOf(a.cat) - ALCATS.indexOf(b.cat) || a.name.localeCompare(b.name, 'fr');
+function allList() {
+  const q = ui.allSearch.toLowerCase(), ls = S.dishes.filter(d => !q || d.name.toLowerCase().includes(q)).sort(dishSort);
+  if (!ls.length) return `<div class="card empty">${q ? 'Aucun résultat.' : 'Aucun plat déclaré. Ajoutez votre premier plat avec le bouton ci-dessus.'}</div>`;
+  return ls.map(d => `<div class="card"><div class="item"><div class="body" data-act="editDish" data-id="${d.id}" style="cursor:pointer">
+    <div class="title">${esc(d.name)} <span class="muted small">· ${esc(d.cat)}</span></div>
+    <div class="row" style="gap:6px;margin:6px 0">${d.al.length ? d.al.map(a => `<span class="pill al">${esc(ALN[a])}</span>`).join('') : '<span class="pill ok">Aucun allergène déclaré</span>'}</div>
+    <div class="small muted">Mis à jour le ${fmtDT(d.updatedAt)} par ${esc(d.updatedBy)}${d.note ? ' · ' + esc(d.note) : ''}</div></div></div></div>`).join('');
+}
+function allPrint() {
+  const ls = S.dishes.slice().sort(dishSort);
+  if (!ls.length) return '';
+  return `<div class="printonly"><h2>${esc(S.name)} – Allergènes</h2>
+    <p>Allergènes à déclaration obligatoire présents dans nos préparations. Édité le ${fmtDay(ymd(new Date()))}. Pour toute question, demandez conseil à notre équipe.</p>
+    <table><thead><tr><th>Plat</th>${ALLERGENS.map(([, l]) => `<th style="writing-mode:vertical-rl;transform:rotate(180deg);height:120px">${esc(l)}</th>`).join('')}</tr></thead>
+    <tbody>${ls.map(d => `<tr><td>${esc(d.name)}</td>${ALLERGENS.map(([k]) => `<td style="text-align:center">${d.al.includes(k) ? '●' : ''}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+views.all = function () {
+  return `<div class="row spread noprint"><h2>Allergènes</h2><div class="row"><button class="btn" data-act="printAll">${ic('print')} Imprimer le tableau</button>
+      <button class="btn pri big" data-act="newDish">${ic('plus')} Nouveau plat</button></div></div>
+    <p class="muted noprint" style="margin:0 0 10px">Déclarez, pour chaque plat et boisson, les 14 allergènes à déclaration obligatoire qu'il contient. Mettez à jour dès qu'une recette ou un produit change, puis imprimez le tableau pour l'afficher aux clients.</p>
+    <input class="noprint" type="search" id="allSearch" placeholder="Rechercher un plat…" value="${esc(ui.allSearch)}" style="margin:0 0 12px">
+    <div id="allList" class="noprint">${allList()}</div>${allPrint()}`;
+};
+
+/* ---------- Actions : températures, allergènes, réglages ---------- */
+function recIssues(rule, temp, dlcType, dlc) {
+  const m = [];
+  if (rule && temp !== '' && !ruleOk(rule, Number(temp))) m.push(`température ${fmtQ(temp)} °C hors limite (${ruleTxt(rule)})`);
+  if (dlc && dlc < ymd(new Date())) m.push(`${dlcType} dépassée (${fmtDay(dlc)})`);
+  return m;
+}
+Object.assign(actions, {
+  tempTab(d) { ui.tempTab = d.k; render(); },
+  newReading(d) {
+    if (!needUser()) return;
+    const e = S.equip.find(x => x.id === d.id); if (!e) return;
+    openForm({
+      title: 'Relevé : ' + e.name,
+      html: `<p style="margin-top:0">Limite : <b>${limTxt(e)}</b></p><div id="tHint" class="note" hidden></div>`,
+      fields: [
+        { name: 'val', label: 'Température relevée (°C)', type: 'number', attrs: 'step="0.1" inputmode="decimal" autofocus', required: true },
+        { name: 'action', label: 'Action corrective', hint: 'obligatoire si hors limite', type: 'textarea' }],
+      onInput(f) {
+        const h = $('#tHint'); if (f.val.value === '') { h.hidden = true; return; }
+        const ok = eqOk(e, Number(f.val.value)); h.hidden = ok;
+        if (!ok) h.textContent = `Hors limite (${limTxt(e)}) : indiquez l'action corrective (produits déplacés, appel du technicien, produits jetés…).`;
+      },
+      submit(v) {
+        const val = Number(v.val), ok = eqOk(e, val);
+        if (!ok && !v.action) { alert('Température hors limite : indiquez l\'action corrective.'); return false; }
+        S.temps.push({ id: uid(), equipId: e.id, equipName: e.name, kind: e.kind, limit: e.limit, value: val, at: toInput(new Date()), by: S.currentUser, ok, action: v.action });
+        commit(ok ? 'Relevé enregistré ✓' : 'Relevé enregistré : hors limite');
+      },
+    });
+  },
+  startCool() {
+    if (!needUser()) return;
+    openForm({ title: 'Démarrer un refroidissement', fields: [
+      { name: 'product', label: 'Préparation', required: true, list: S.products.map(p => p.name) },
+      { name: 'startTemp', label: 'Température de départ (°C)', type: 'number', value: 63, attrs: 'step="0.1" inputmode="decimal"', required: true, half: true },
+      { name: 'startAt', label: 'Heure de début', type: 'datetime-local', value: toInput(new Date()), required: true, half: true }],
+      submit(v) { S.cooling.push({ id: uid(), product: v.product, startTemp: Number(v.startTemp), startAt: v.startAt, by: S.currentUser, status: 'running' }); commit('Refroidissement démarré ✓'); } });
+  },
+  endCool(d) {
+    if (!needUser()) return;
+    const c = S.cooling.find(x => x.id === d.id); if (!c) return;
+    openForm({
+      title: 'Terminer : ' + c.product,
+      html: `<p style="margin-top:0">Début : <b>${fmtDT(c.startAt)}</b> à ${fmtQ(c.startTemp)} °C. Objectif : ≤ ${COOL_END_MAX} °C en ${COOL_MAX_MIN / 60} h maximum.</p>`,
+      fields: [
+        { name: 'endTemp', label: 'Température finale (°C)', type: 'number', attrs: 'step="0.1" inputmode="decimal" autofocus', required: true, half: true },
+        { name: 'endAt', label: 'Heure de fin', type: 'datetime-local', value: toInput(new Date()), required: true, half: true },
+        { name: 'action', label: 'Action corrective', hint: 'obligatoire si l\'objectif n\'est pas atteint', type: 'textarea' }],
+      submit(v) {
+        if (v.endAt < c.startAt) { alert('L\'heure de fin est avant le début.'); return false; }
+        const m = mins(c.startAt, v.endAt), t = Number(v.endTemp), ok = t <= COOL_END_MAX && m <= COOL_MAX_MIN;
+        if (!ok && !v.action) { alert('Objectif non atteint : indiquez l\'action corrective (produit jeté, remis à refroidir…).'); return false; }
+        Object.assign(c, { status: 'done', endAt: v.endAt, endTemp: t, minutes: m, ok, action: v.action, endBy: S.currentUser });
+        commit(ok ? 'Refroidissement conforme ✓' : 'Refroidissement noté non conforme');
+      } });
+  },
+  newOil() {
+    if (!needUser()) return;
+    const fryers = [...new Set(S.oil.map(o => o.fryer))];
+    openForm({
+      title: 'Contrôle de l\'huile de friture', html: '<div id="oHint" class="note" hidden></div>',
+      fields: [
+        { name: 'fryer', label: 'Friteuse', value: fryers[fryers.length - 1] || 'Friteuse 1', required: true, list: fryers, half: true },
+        { name: 'polar', label: 'Composés polaires (%)', hint: 'testeur', type: 'number', attrs: 'min="0" max="100" step="0.5" inputmode="decimal"', half: true },
+        { name: 'action', label: 'Décision', type: 'select', options: OIL_ACTIONS, value: OIL_ACTIONS[0] }],
+      onInput(f, ev) {
+        const p = Number(f.polar.value), has = f.polar.value !== '';
+        if (ev.target.name === 'polar' && has) f.action.value = p > 25 ? OIL_ACTIONS[2] : p >= 20 ? OIL_ACTIONS[1] : OIL_ACTIONS[0];
+        const h = $('#oHint'); h.hidden = !(has && p >= 20);
+        if (!h.hidden) h.textContent = p > 25 ? 'Au-delà de 25 % : l\'huile doit être changée.' : 'Entre 20 et 25 % : huile dégradée, à surveiller de près.';
+      },
+      submit(v) {
+        if (v.polar === '' && v.action !== OIL_ACTIONS[2]) { alert('Indiquez le taux de composés polaires (ou choisissez « Huile changée »).'); return false; }
+        if (v.polar !== '' && Number(v.polar) > 25 && v.action !== OIL_ACTIONS[2]) { alert('Au-delà de 25 % de composés polaires, l\'huile doit être changée.'); return false; }
+        S.oil.push({ id: uid(), fryer: v.fryer, polar: v.polar === '' ? '' : Number(v.polar), action: v.action, at: toInput(new Date()), by: S.currentUser });
+        commit('Contrôle enregistré ✓');
+      } });
+  },
+
+  printAll() { window.print(); },
+  newDish() { actions.editDish({}); },
+  editDish(d) {
+    const x = S.dishes.find(i => i.id === d.id), edit = can('all', 'edit');
+    if (!x && !edit) return;
+    const cur = x ? x.al : [];
+    openForm({
+      title: x ? (edit ? 'Modifier le plat' : x.name) : 'Nouveau plat', cancelLabel: edit ? 'Annuler' : 'Fermer',
+      html: edit ? '' : `<p style="margin-top:0">${(x.al.length ? x.al.map(a => `<span class="pill al">${esc(ALN[a])}</span>`).join(' ') : '<span class="pill ok">Aucun allergène déclaré</span>')}</p>
+        <p class="small muted">${esc(x.cat)}${x.note ? ' · ' + esc(x.note) : ''} · mis à jour le ${fmtDT(x.updatedAt)} par ${esc(x.updatedBy)}</p>`,
+      fields: edit ? [
+        { name: 'name', label: 'Nom du plat ou de la boisson', value: x ? x.name : '', required: true, half: true },
+        { name: 'cat', label: 'Catégorie', type: 'select', options: ALCATS, value: x ? x.cat : 'Plat', half: true }] : [],
+      submit: edit ? (v => {
+        const al = ALLERGENS.filter(([k]) => v['a_' + k]).map(([k]) => k);
+        const o = { name: v.name, cat: v.cat, al, note: v.note || '', updatedAt: toInput(new Date()), updatedBy: S.currentUser };
+        if (x) Object.assign(x, o); else S.dishes.push({ id: uid(), ...o });
+        commit('Plat enregistré ✓');
+      }) : undefined,
+    });
+    if (edit) $('#dlg .scroll').insertAdjacentHTML('beforeend', `<h3>Allergènes présents</h3><div class="agrid">${ALLERGENS.map(([k, l]) =>
+      `<label class="achip"><input type="checkbox" name="a_${k}" ${cur.includes(k) ? 'checked' : ''}> ${esc(l)}</label>`).join('')}</div>
+      <label class="f">Remarque <span class="h">– facultatif (ex. sans gluten sur demande)</span><input name="note" value="${esc(x ? x.note : '')}"></label>
+      ${x ? `<p><button type="button" class="btn sm danger" data-act="delDish" data-id="${x.id}">${ic('trash')} Supprimer ce plat</button></p>` : ''}`);
+  },
+  delDish(d) {
+    const x = S.dishes.find(i => i.id === d.id);
+    if (!x || !confirm(`Supprimer « ${x.name} » de la liste des allergènes ?`)) return;
+    S.dishes = S.dishes.filter(i => i !== x); $('#dlg').close(); commit('Plat supprimé');
+  },
+
+  editEquip(d) {
+    const e = S.equip.find(x => x.id === d.id);
+    openForm({ title: e ? 'Modifier l\'équipement' : 'Nouvel équipement', fields: [
+      { name: 'name', label: 'Nom', value: e ? e.name : '', required: true },
+      { name: 'kind', label: 'Type', type: 'select', options: Object.entries(EQ_KIND), value: e ? e.kind : 'cold', half: true },
+      { name: 'limit', label: 'Limite (°C)', hint: 'maximum pour le froid, minimum pour le chaud', type: 'number', value: e ? e.limit : 4, attrs: 'step="0.5" inputmode="decimal"', required: true, half: true }],
+      submit(v) { const o = { name: v.name, kind: v.kind, limit: Number(v.limit) }; if (e) Object.assign(e, o); else S.equip.push({ id: uid(), ...o }); commit(); } });
+  },
+  delEquip(d) { if (!confirm('Retirer cet équipement ? Les relevés restent au registre.')) return; S.equip = S.equip.filter(x => x.id !== d.id); commit(); },
+  editRule(d) {
+    const r = S.tempRules.find(x => x.id === d.id);
+    openForm({ title: r ? 'Modifier le seuil' : 'Nouveau seuil de température', fields: [
+      { name: 'name', label: 'Catégorie de produit', value: r ? r.name : '', required: true },
+      { name: 'type', label: 'Type de limite', type: 'select', options: [['max', 'Maximum'], ['min', 'Minimum'], ['none', 'Pas de contrôle']], value: r ? r.type : 'max', half: true },
+      { name: 'limit', label: 'Limite (°C)', type: 'number', value: r ? r.limit : 4, attrs: 'step="0.5" inputmode="decimal"', half: true }],
+      submit(v) { const o = { name: v.name, type: v.type, limit: Number(v.limit) || 0 }; if (r) Object.assign(r, o); else S.tempRules.push({ id: uid(), ...o }); commit(); } });
+  },
+  delRule(d) { if (!confirm('Retirer ce seuil ?')) return; S.tempRules = S.tempRules.filter(x => x.id !== d.id); commit(); },
+
+  newProfile() {
+    if (!isAdmin()) return;
+    openForm({
+      title: 'Nouveau profil',
+      html: '<p class="small muted" style="margin-top:0">Choisissez ce que ce profil peut faire dans chaque catégorie. Un administrateur a tous les droits.</p>',
+      fields: [
+        { name: 'name', label: 'Prénom', required: true, half: true },
+        { name: 'role', label: 'Rôle', type: 'select', options: [['user', 'Équipier'], ['admin', 'Administrateur']], value: 'user', half: true },
+        { name: 'pw', label: 'Mot de passe', hint: '4 caractères minimum', type: 'password', attrs: PW_ATTRS, required: true, half: true },
+        { name: 'pw2', label: 'Confirmer', type: 'password', attrs: PW_ATTRS, required: true, half: true },
+        { ...presetField(), value: 'cuisine' }, ...permFields(PRESETS.cuisine[1])],
+      onInput(f, ev) { presetInput(f, ev); roleInput(f); },
+      async submit(v) {
+        if (S.profiles.some(p => p.name.toLowerCase() === v.name.toLowerCase())) { alert('Ce profil existe déjà.'); return false; }
+        if (v.pw !== v.pw2) { alert('Les deux mots de passe sont différents.'); return false; }
+        const p = { id: uid(), name: v.name, role: v.role, ...await makePw(v.pw) };
+        if (v.role !== 'admin') p.perms = readPerms(v);
+        S.profiles.push(p); commit('Profil créé ✓');
+      } });
+  },
+  editPerms(d) {
+    const p = S.profiles.find(x => x.id === d.id); if (!p || !isAdmin()) return;
+    const self = p.name === S.currentUser;
+    if (self) return openForm({ title: 'Droits de ' + p.name, cancelLabel: 'Fermer', html: '<p style="margin-top:0">Vous êtes administrateur : vous avez tous les droits. Pour limiter un profil, ouvrez les droits d\'un autre membre de l\'équipe.</p>' });
+    const f = openForm({
+      title: 'Droits de ' + p.name,
+      html: '<p class="small muted" style="margin-top:0">Définissez ce que ce profil peut faire dans chaque catégorie.</p>',
+      fields: [{ name: 'role', label: 'Rôle', type: 'select', options: [['user', 'Équipier'], ['admin', 'Administrateur']], value: p.role }, presetField(), ...permFields(permsOf(p))],
+      onInput(f, ev) { presetInput(f, ev); roleInput(f); },
+      submit(v) {
+        if (p.role === 'admin' && v.role !== 'admin' && S.profiles.filter(x => x.role === 'admin').length < 2) { alert('Il doit rester au moins un administrateur.'); return false; }
+        p.role = v.role; if (v.role !== 'admin') p.perms = readPerms(v);
+        commit('Droits mis à jour ✓');
+      } });
+    roleInput(f);
+  },
+  newRec() {
+    if (!needUser()) return;
+    const rules = S.tempRules;
+    openForm({
+      title: 'Nouvelle réception',
+      html: '<div id="rHint" class="note" hidden></div>',
+      fields: [
+        { name: 'supplier', label: 'Fournisseur', required: true, list: S.suppliers, half: true },
+        { name: 'product', label: 'Produit', required: true, list: [...new Set(S.receptions.map(r => r.product))].slice(-80), half: true },
+        { name: 'lot', label: 'N° de lot', half: true },
+        { name: 'qty', label: 'Quantité', hint: 'ex. 5 kg, 2 colis', half: true },
+        { name: 'dlcType', label: 'Type de date', type: 'select', options: ['DLC', 'DDM'], value: 'DLC', half: true },
+        { name: 'dlc', label: 'Date limite', type: 'date', half: true },
+        ...(rules.length ? [{ name: 'tcat', label: 'Catégorie de température', type: 'select', options: rules.map(r => [r.id, `${r.name} (${ruleTxt(r)})`]), value: rules[0].id }] : []),
+        { name: 'temp', label: 'Température à réception (°C)', hint: 'produits frais / surgelés', type: 'number', attrs: 'step="0.1" inputmode="decimal"', half: true },
+        { name: 'conform', label: 'Contrôle', type: 'select', options: [['1', 'Conforme'], ['0', 'Non conforme']], value: '1', half: true },
+        { name: 'action', label: 'Anomalie et action corrective', hint: 'obligatoire si non conforme (ex. colis refusé)', type: 'textarea' },
+        { name: 'photo', label: 'Photo de l\'étiquette', hint: 'facultatif', type: 'photo' },
+      ],
+      onInput(f) {
+        const r = f.tcat && rules.find(x => x.id === f.tcat.value), msgs = recIssues(r, f.temp.value, f.dlcType.value, f.dlc.value);
+        const h = $('#rHint'), prev = f.dataset.auto || '';
+        if (msgs.length) {
+          const auto = 'Non-conformité : ' + msgs.join(' ; ') + '. Action : ';
+          h.hidden = false; h.textContent = 'Non-conformité détectée : ' + msgs.join(' ; ') + '. Le produit doit être refusé ou isolé.';
+          f.conform.value = '0'; if (!f.action.value || f.action.value === prev) f.action.value = auto; f.dataset.auto = auto;
+        } else {
+          h.hidden = true;
+          if (prev && f.action.value === prev) { f.action.value = ''; f.conform.value = '1'; }
+          f.dataset.auto = '';
+        }
+      },
+      async submit(v, f) {
+        const r = rules.find(x => x.id === v.tcat), msgs = recIssues(r, v.temp, v.dlcType, v.dlc);
+        if (v.conform === '0' && (!v.action || /Action :\s*$/.test(v.action))) { alert('Indiquez l\'anomalie et l\'action corrective.'); return false; }
+        if (v.conform === '1' && msgs.length && !confirm('Attention : ' + msgs.join(' ; ') + '.\nEnregistrer quand même comme CONFORME ?')) return false;
+        let photoId = '';
+        const file = f.photo.files[0];
+        if (file) { try { photoId = uid(); await idb.set('photos', photoId, await fileToJpeg(file)); } catch (e) { photoId = ''; alert('La photo n\'a pas pu être enregistrée : ' + e.message); } }
+        S.receptions.push({ id: uid(), at: toInput(new Date()), supplier: v.supplier, product: v.product, lot: v.lot, qty: v.qty, dlcType: v.dlcType, dlc: v.dlc, temp: v.temp,
+          tcat: r ? r.name : '', tlimit: r ? ruleTxt(r) : '', conform: v.conform === '1', action: v.action, photoId, by: S.currentUser });
+        if (!S.suppliers.includes(v.supplier)) S.suppliers.push(v.supplier);
+        commit('Réception enregistrée ✓');
+      },
+    });
+  },
+});
+/* ---------- Événements ---------- */
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-act]'); if (!el) return;
+  const fn = actions[el.dataset.act]; if (!fn) return;
+  if (!allowed(el.dataset.act, el.dataset)) return toast('Accès non autorisé pour votre profil', true);
+  fn(el.dataset, el);
+});
+document.addEventListener('input', ev => {
+  if (ev.target.id === 'recSearch') { ui.search = ev.target.value; $('#recList').innerHTML = recList(); }
+  if (ev.target.id === 'stockSearch') { ui.stockSearch = ev.target.value; $('#stockList').innerHTML = stockList(); }
+  if (ev.target.id === 'allSearch') { ui.allSearch = ev.target.value; $('#allList').innerHTML = allList(); }
+  if (ev.target.id === 'labSearch') { ui.labSearch = ev.target.value; $('#labList').innerHTML = labList(); loadThumbs(); }
+});
+document.addEventListener('change', ev => {
+  const t = ev.target;
+  if (t.id === 'regFrom' && t.value) { ui.from = t.value; render(); }
+  if (t.id === 'regTo' && t.value) { ui.to = t.value; render(); }
+  if (t.id === 'restore' && t.files[0]) { restore(t.files[0]); t.value = ''; }
+  if (t.id === 'labCam' && t.files[0]) saveLabelPhoto(t.files[0]);
+});
+$('#dlg').addEventListener('cancel', ev => { if (!S.currentUser) ev.preventDefault(); });
+// Anciennes données : les prénoms de l'équipe deviennent des profils (mot de passe à définir par l'administrateur).
+function migrate() {
+  if (!S.profiles.length && S.staff.length) S.profiles = S.staff.map(n => ({ id: uid(), name: n, role: 'user', salt: '', hash: '' }));
+  S.staff = []; S.currentUser = ''; role = '';
+}
+
+/* ---------- Démarrage ---------- */
+(async () => {
+  try { const st = await idb.get('kv', 'state'); if (st) S = Object.assign(DEFAULTS(), st); }
+  catch (e) { alert('Impossible de lire les données enregistrées : ' + e); }
+  migrate(); render(); actions.pickUser();
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+  setInterval(() => { if (!$('#dlg').open && !['set', 'reg', 'rec', 'lab', 'stock', 'all'].includes(ui.view)) render(); }, 60000);
+})();
+</script>
+</body>
+</html>
