@@ -11,8 +11,8 @@
 </head>
 <body>
 <header>
-  <img src="icon-192.png" alt="">
-  <h1 id="title">Traçabilité cuisine</h1>
+  <img src="icon-192.png" alt="Accueil" data-act="go" data-v="home" title="Retour à l'accueil">
+  <h1 id="title" data-act="go" data-v="home">Traçabilité cuisine</h1>
   <span class="date" id="today"></span>
   <button id="userBtn" data-act="pickUser">Qui êtes-vous ?</button>
 </header>
@@ -286,12 +286,10 @@ const views = {
     const today = ymd(new Date()), recToday = S.receptions.filter(r => r.at.slice(0, 10) === today);
     const nc = S.receptions.filter(r => !r.conform && r.at.slice(0, 10) >= ymd(addDays(new Date(), -7))).length;
     const bk = !S.lastBackup ? (S.dlc.length + S.receptions.length + S.cleanLog.length > 0) : S.lastBackup < ymd(addDays(new Date(), -7));
-    const day = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
     const sum = !can('dlc') ? 'Bonne journée en cuisine' : urgent.length ? `${urgent.length} produit${urgent.length > 1 ? 's' : ''} à surveiller` : 'Aucune date à surveiller';
     return `${bk && isAdmin() ? `<div class="note">${ic('save')}<span>Pensez à faire une sauvegarde des données (dernière : ${S.lastBackup ? fmtDay(S.lastBackup) : 'jamais'}).</span> <button class="btn sm" data-act="go" data-v="set">Sauvegarder</button></div>` : ''}
     <div class="hero"><img src="logo.jpg" alt="Le Clan"><div class="t">
       <div class="hi">Bonjour ${esc(S.currentUser)}</div>
-      <div class="day">${day}</div>
       <div class="sum">${sum} · nettoyage du jour ${dailyDone}/${daily.length}</div>
       <span class="tag">${ic(isAdmin() ? 'key' : 'user')}${isAdmin() ? 'Administrateur' : 'Équipier'}</span></div></div>
     <div class="tiles">

@@ -299,6 +299,7 @@ nav button{font-size:10.5px;gap:3px;padding:5px 2px}
 nav button .ico{width:40px;height:26px;border-radius:13px}
 nav button .ic{width:20px;height:20px}
 nav .badge{top:0;left:calc(50% + 6px);min-width:17px;padding:0 4px;font-size:10px;line-height:14px;border-width:2px;text-align:center}
+@media (max-width:600px){nav button{min-width:68px;font-size:10px}}
 main{padding:14px 14px 22px}
 @media (min-width:900px){
   body{grid-template-columns:96px 1fr}
@@ -327,7 +328,9 @@ h3{font-size:12px;margin:20px 0 10px}
 .btn.sm .ic{width:17px;height:17px}
 .chip{min-height:38px;padding:0 14px;font-size:13px;gap:6px}
 .chip .muted{font-size:12px}
-.pill{padding:3px 9px;font-size:12px}
+.pill{padding:3px 10px;font-size:12px;white-space:normal;max-width:100%;line-height:1.25;border-radius:12px;text-align:left;overflow-wrap:anywhere}
+header img[data-act],header h1[data-act]{cursor:pointer}
+header img[data-act]:active{transform:scale(.95)}
 .hero{grid-template-columns:minmax(84px,150px) 1fr;gap:18px;padding:12px;margin-bottom:12px;border-radius:22px}
 .hero img{border-radius:17px}
 .hero .hi{font-size:clamp(28px,4.5vw,42px)}
